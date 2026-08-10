@@ -143,12 +143,14 @@ with HTTPS and it runs.
 
 Released under the MIT License — © 2026 bdredenbach.
 
-You're welcome to use, modify, and build on this. The one condition is that the
-copyright notice stays with it, so **if you reuse this anywhere, keep the
-attribution.** A link back is appreciated but not required.
+You are free to use, modify, distribute, and build upon this software,
+subject to the terms of the MIT License. See `LICENSE.txt` for the full license.
+
+This license applies to the software in this repository only. It does not grant
+rights to comic artwork or to third-party services used by the application.
 
 <sub>The app processes comics you already own. It doesn't include, host, or
-distribute any comic content, and the license above covers this software only.</sub>
+distribute any comic content.</sub>
 
 ---
 
