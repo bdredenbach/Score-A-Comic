@@ -1,8 +1,6 @@
 <img width="1280" height="440" alt="123005" src="https://github.com/user-attachments/assets/3e065940-09b5-461e-b2b8-b6d725c4ab43" />
 <div align="center">
 
-<img src="banner.png" alt="Comic Scorer" width="100%">
-
 <br>
 
 **Read a comic. Get a soundtrack written for it.**
