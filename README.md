@@ -145,7 +145,7 @@ with HTTPS and it runs.
 
 ## License
 
-Released under the [MIT License](LICENSE) — © 2026 bdredenbach.
+Released under the MIT License — © 2026 bdredenbach.
 
 You're welcome to use, modify, and build on this. The one condition is that the
 copyright notice stays with it, so **if you reuse this anywhere, keep the
