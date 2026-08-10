@@ -125,7 +125,7 @@ readiness**. It checks every requirement and names the one that's failing.
 </details>
 
 <details>
-<summary><b>What's in here</b></summary>
+<summary><b>What's inside</b></summary>
 
 <br>
 
@@ -157,5 +157,5 @@ distribute any comic content, and the license above covers this software only.</
 ---
 
 <div align="center">
-<sub>Built with Claude · Personal project, shared as-is</sub>
+<sub>· Built with Claude.ai · Built with Stability.ai ·</sub>
 </div>
