@@ -68,7 +68,7 @@ into [stableaudio.com](https://stableaudio.com) by hand.
 
 ## How to use it
 
-1. **Add pages** — up to 16 images from one issue, in reading order
+1. **Add pages** — up to 16 images from one issue, in reading order (screenshots work)
 2. Set the **first page number** so the cue sheet's page ranges line up with the book
 3. **Score pages** — Claude returns the cue sheet in a few seconds
 4. **Generate music** on each cue you want
