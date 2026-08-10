@@ -223,6 +223,14 @@
     margin:2px 0 8px 18px;line-height:1.6;
   }
 
+  .footline{margin-top:18px;text-align:center;}
+  .linkbtn{
+    background:none;border:none;cursor:pointer;
+    font-family:'Space Mono',monospace;font-size:11px;
+    color:#4a5058;letter-spacing:.05em;padding:6px;
+  }
+  .linkbtn:hover{color:var(--gold);}
+
   .playbar{
     position:fixed;left:0;right:0;bottom:0;z-index:50;
     background:rgba(21,24,29,.97);border-top:1px solid var(--line);
@@ -384,7 +392,7 @@
     <button class="primary" id="installBtn" style="margin:0;width:100%;">Install app</button>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="diagPanel">
     <details class="keybox" id="diagbox">
       <summary id="diagsum">Install readiness — tap to check</summary>
       <div id="diaglist" class="diaglist">Run the check to see what's missing.</div>
@@ -404,6 +412,9 @@
     <summary>View the scoring prompt sent to Claude</summary>
     <pre id="promptdump"></pre>
   </details>
+  <p class="footline" id="footTools" style="display:none;">
+    <button class="linkbtn" id="footReset">Reset app data</button>
+  </p>
 </div>
 
 <div class="playbar" id="playbar">
@@ -968,7 +979,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-10-C';
+const BUILD = '2026-08-10-D';
 
 async function runDiag(){
   const out = [];
@@ -1063,8 +1074,8 @@ document.getElementById('diagrun').onclick = runDiag;
 
 /* Nuclear option: drop every service worker and cache for this origin,
    then reload past the HTTP cache. Your keys and saved tracks are untouched. */
-document.getElementById('diagreset').onclick = async function(){
-  this.textContent = 'Clearing…';
+async function hardReset(btn){
+  if(btn) btn.textContent = 'Clearing…';
   try{
     if('serviceWorker' in navigator){
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -1076,7 +1087,36 @@ document.getElementById('diagreset').onclick = async function(){
     }
   }catch(e){}
   location.replace(location.pathname + '?fresh=' + Date.now());
-};
+}
+document.getElementById('diagreset').onclick = function(){ hardReset(this); };
+document.getElementById('footReset').onclick = function(){ hardReset(this); };
+
+/* Once the app is installed and launched from the home screen, the install
+   scaffolding has done its job — hide it. Opening the same URL in a browser
+   tab still shows it, so it stays available if anything needs re-checking. */
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches
+      || window.matchMedia('(display-mode: fullscreen)').matches
+      || window.matchMedia('(display-mode: minimal-ui)').matches
+      || navigator.standalone === true
+      || (document.referrer || '').startsWith('android-app://');
+}
+function applyInstalledChrome(){
+  const installed = isStandalone();
+  const diag = document.getElementById('diagPanel');
+  const inst = document.getElementById('installPanel');
+  const foot = document.getElementById('footTools');
+  if(diag) diag.style.display = installed ? 'none' : '';
+  if(installed && inst) inst.style.display = 'none';
+  if(foot) foot.style.display = installed ? 'block' : 'none';
+}
+applyInstalledChrome();
+// Chrome can switch display-mode without a reload.
+try{
+  window.matchMedia('(display-mode: standalone)')
+        .addEventListener('change', applyInstalledChrome);
+}catch(e){}
+
 document.getElementById('diagbox').addEventListener('toggle', function(){
   if(this.open && document.getElementById('diaglist').textContent.startsWith('Run the check')) runDiag();
 });
