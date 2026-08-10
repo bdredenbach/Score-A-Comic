@@ -5,6 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spotting Session — Comic Score Tool</title>
 <link rel="manifest" href="manifest.json">
+<script>
+/* Belt and braces. If the static manifest link above is missing from the DOM
+   for any reason — an editor mangling the head, a proxy rewriting it, a host
+   quirk — add it here, early, so installability still passes. */
+(function(){
+  try{
+    if(!document.querySelector('link[rel="manifest"]')){
+      var l = document.createElement('link');
+      l.rel = 'manifest';
+      l.href = 'manifest.json';
+      (document.head || document.documentElement).appendChild(l);
+      window.__manifestInjected = true;
+    }
+  }catch(e){}
+})();
+</script>
 <meta name="theme-color" content="#0c0e11">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="scorer-icon-192.png">
@@ -952,7 +968,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-10-B';
+const BUILD = '2026-08-10-C';
 
 async function runDiag(){
   const out = [];
@@ -983,6 +999,10 @@ async function runDiag(){
     }catch(e){ out.push(line('bad','manifest.json unreachable')); }
   }
   else{
+    out.push(window.__manifestInjected
+      ? line('warn','Manifest link was missing from the served HTML — added at runtime',
+             'Install should still work. It means the head tag is not reaching the browser; worth checking view-source, but not blocking.')
+      : line('ok','Manifest link present in the page'));
     try{
       const r = await fetch(mlink.href, {cache:'no-store'});
       if(!r.ok) throw new Error(r.status);
