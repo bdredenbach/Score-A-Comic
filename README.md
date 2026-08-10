@@ -22,25 +22,21 @@ and writes a music cue for each one — then generates the audio and plays it ba
 ![Works offline](https://img.shields.io/badge/works-offline-3e5c76?style=flat-square)
 ![Bring your own keys](https://img.shields.io/badge/keys-your_own-555?style=flat-square)
 
-</div>
+
 
 ---
 
 ## What it does
 
-Most reading soundtracks are one long ambient track that ignores the story. This
-scores *scene by scene*.
+Soundtracks are usually one long ambient track that ignores the story. Score-A-Comic scores scene by scene instead.
 
-You add the pages of an issue. Claude reads them — art, dialogue, pacing — and
-returns a **cue sheet**: two to four movements, each covering a page range, with
-its own mood, intensity rating, and a music prompt written for it.
+You add the pages of an issue with an image picker, and Claude reads them using your Anthropic API key. It takes in the art, dialogue and pacing and returns a cue sheet: two to four movements, each covering a page range, with its own mood, intensity rating and a music prompt written for it.
 
-Then each cue becomes an actual track you can play while you read.
+You then generate the cues you want, one at a time. Each prompt goes to Stable Audio using your Stability AI key and comes back as a track you can play while you read.
 
-The point is restraint. An epic story still has quiet scenes, and this scores them
-quietly. Every cue also carries an **avoid** list — *no triumphant brass, no choir,
-no orchestral swell* — because music models drift toward cinematic by default and
-a hushed argument in a cave shouldn't sound like a battle.
+Every cue also carries an avoid list — no triumphant brass, no choir, no orchestral swell — because music models drift toward cinematic by default, and a hushed argument in a cave shouldn't sound like a battle.
+
+The built-in player loops the current cue by default, since a 95-second track never matches how long you actually spend on three pages. Switch to Advance and it queues the next cue automatically as each one ends.
 
 ---
 
@@ -158,4 +154,5 @@ distribute any comic content, and the license above covers this software only.</
 
 <div align="center">
 <sub>· Built with Claude.ai · Built with Stability.ai ·</sub>
+</div>
 </div>
