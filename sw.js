@@ -1,8 +1,12 @@
 /* Comic Scorer service worker.
    Caches the app shell so it launches with no connection. API calls to
-   Anthropic and Stability always go to the network — they're never cached. */
+   Anthropic and Stability always go to the network — they're never cached.
 
-const CACHE = 'comic-scorer-v1';
+   v2: the page itself is now network-first. v1 was cache-first for
+   everything, which meant a stale index.html could be served forever
+   after an update. Bumping the cache name also wipes the old one. */
+
+const CACHE = 'comic-scorer-v2';
 const SHELL = [
   './',
   './index.html',
@@ -14,8 +18,7 @@ const SHELL = [
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
-      // addAll fails the whole install if any single file 404s, so add
-      // them individually and tolerate misses.
+      // Add individually so one missing file doesn't fail the whole install.
       .then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {}))))
       .then(() => self.skipWaiting())
   );
@@ -40,26 +43,33 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Same-origin: cache first, so the app opens offline.
-  if (url.origin === location.origin) {
+  const isPage = req.mode === 'navigate' ||
+                 req.destination === 'document' ||
+                 url.pathname.endsWith('.html') ||
+                 url.pathname.endsWith('/');
+
+  // The page and the manifest: network first, so edits show up immediately.
+  // Cache is only the offline fallback.
+  if (isPage || url.pathname.endsWith('manifest.json')) {
     e.respondWith(
-      caches.match(req).then(hit =>
-        hit || fetch(req).then(res => {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
-          return res;
-        }).catch(() => hit)
-      )
+      fetch(req).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        return res;
+      }).catch(() => caches.match(req).then(hit => hit || caches.match('./index.html')))
     );
     return;
   }
 
-  // Cross-origin (fonts): network first, fall back to cache if offline.
+  // Static assets (icons, fonts): cache first, refresh in the background.
   e.respondWith(
-    fetch(req).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
-      return res;
-    }).catch(() => caches.match(req))
+    caches.match(req).then(hit => {
+      const net = fetch(req).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        return res;
+      }).catch(() => hit);
+      return hit || net;
+    })
   );
 });
