@@ -903,13 +903,44 @@ function wireEnded(el){
 }
 wireEnded(player.a); wireEnded(player.b);
 
+/* Crossfading via setInterval breaks in the background — Chrome throttles
+   timers, so the incoming track would start at volume 0 and never rise.
+   Routing through Web Audio puts the fade on the audio thread, where
+   throttling doesn't reach it. Falls back to timers if unavailable. */
+const wa = { ctx:null, gA:null, gB:null, ready:false, tried:false };
+function wireAudioGraph(){
+  if(wa.ready) return true;
+  if(wa.tried) return false;
+  wa.tried = true;
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return false;
+    wa.ctx = new AC();
+    const sA = wa.ctx.createMediaElementSource(player.a);
+    const sB = wa.ctx.createMediaElementSource(player.b);
+    wa.gA = wa.ctx.createGain();
+    wa.gB = wa.ctx.createGain();
+    sA.connect(wa.gA).connect(wa.ctx.destination);
+    sB.connect(wa.gB).connect(wa.ctx.destination);
+    wa.gA.gain.value = 1;
+    wa.gB.gain.value = 1;
+    wa.ready = true;
+    return true;
+  }catch(e){ return false; }
+}
+function resumeCtx(){
+  try{ if(wa.ctx && wa.ctx.state === 'suspended') wa.ctx.resume(); }catch(e){}
+}
+function gainFor(el){ return el === player.a ? wa.gA : wa.gB; }
+
 function loadCue(i, autoplay){
   const t = player.tracks[i]; if(!t) return;
   const el = currentEl();
   el.src = t.url;
   el.loop = (player.mode==='LOOP');
   el.volume = 1;
-  if(autoplay) el.play().catch(()=>{});
+  if(wa.ready){ try{ gainFor(el).gain.value = 1; }catch(e){} }
+  if(autoplay){ wireAudioGraph(); resumeCtx(); el.play().catch(()=>{}); }
   paintBar();
 }
 
@@ -920,15 +951,50 @@ function goTo(i, autoplay){
   const to = idleEl();
   to.src = player.tracks[i].url;
   to.loop = (player.mode==='LOOP');
-  to.volume = 0;
   player.idx = i;
 
   const wasPlaying = autoplay || !from.paused;
   if(!wasPlaying){ player.useB = !player.useB; loadCue(i,false); return; }
 
+  wireAudioGraph();
+  resumeCtx();
+  const FADE = 1.2; // seconds
+
+  if(wa.ready){
+    // Audio-thread fade: keeps working while the app is in the background.
+    to.volume = 1; from.volume = 1;
+    const gTo = gainFor(to), gFrom = gainFor(from);
+    const t0 = wa.ctx.currentTime;
+    try{
+      gTo.gain.cancelScheduledValues(t0);
+      gTo.gain.setValueAtTime(0, t0);
+      gTo.gain.linearRampToValueAtTime(1, t0 + FADE);
+      gFrom.gain.cancelScheduledValues(t0);
+      gFrom.gain.setValueAtTime(gFrom.gain.value, t0);
+      gFrom.gain.linearRampToValueAtTime(0, t0 + FADE);
+    }catch(e){}
+    to.play().catch(()=>{});
+    player.useB = !player.useB;
+    // Stopping the old element is housekeeping — safe to be late.
+    setTimeout(()=>{ try{ from.pause(); gFrom.gain.value = 1; }catch(e){} }, FADE*1000 + 250);
+    paintBar();
+    return;
+  }
+
+  // No Web Audio: hard-switch when hidden (a timer ramp would leave it silent),
+  // ramp normally when the app is on screen.
+  if(document.hidden){
+    to.volume = 1;
+    to.play().catch(()=>{});
+    from.pause(); from.volume = 1;
+    player.useB = !player.useB;
+    paintBar();
+    return;
+  }
+  to.volume = 0;
   player.fading = true;
   to.play().catch(()=>{});
-  const dur = 1200, step = 60, ticks = dur/step;
+  const dur = FADE*1000, step = 60, ticks = dur/step;
   let n = 0;
   const iv = setInterval(()=>{
     n++;
@@ -949,7 +1015,10 @@ function goTo(i, autoplay){
 document.getElementById('pbPlay').onclick = ()=>{
   const el = currentEl();
   if(!el.src) return;
-  if(el.paused){ el.play().catch(()=>{}); holdScreen(); }
+  if(el.paused){
+    wireAudioGraph(); resumeCtx();
+    el.play().catch(()=>{}); holdScreen();
+  }
   else { el.pause(); releaseScreen(); }
   setTimeout(paintBar, 60);
 };
@@ -984,7 +1053,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-10-D';
+const BUILD = '2026-08-10-E';
 
 async function runDiag(){
   const out = [];
