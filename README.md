@@ -1,5 +1,6 @@
-<img width="1280" height="440" alt="123005" src="https://github.com/user-attachments/assets/3e065940-09b5-461e-b2b8-b6d725c4ab43" />
 <div align="center">
+
+<img src="banner.png" alt="Comic Scorer" width="100%">
 
 <br>
 
@@ -67,7 +68,7 @@ into [stableaudio.com](https://stableaudio.com) by hand.
 
 ## How to use it
 
-1. **Add pages** — up to 16 images from one issue, in reading order (screenshots work too)
+1. **Add pages** — up to 16 images from one issue, in reading order
 2. Set the **first page number** so the cue sheet's page ranges line up with the book
 3. **Score pages** — Claude returns the cue sheet in a few seconds
 4. **Generate music** on each cue you want
@@ -139,6 +140,19 @@ No build step, no dependencies, no framework. Drop the folder on any static host
 with HTTPS and it runs.
 
 </details>
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE) — © 2026 bdredenbach.
+
+You're welcome to use, modify, and build on this. The one condition is that the
+copyright notice stays with it, so **if you reuse this anywhere, keep the
+attribution.** A link back is appreciated but not required.
+
+<sub>The app processes comics you already own. It doesn't include, host, or
+distribute any comic content, and the license above covers this software only.</sub>
 
 ---
 
