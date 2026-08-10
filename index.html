@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spotting Session — Comic Score Tool</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0c0e11">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="scorer-icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap');
+
+  :root{
+    --ink:#0c0e11;
+    --ink-2:#15181d;
+    --ink-3:#1b1f26;
+    --paper:#ece5d3;
+    --paper-dim:#9aa0a8;
+    --crimson:#c31f39;
+    --gold:#c9a227;
+    --steel:#3e5c76;
+    --line:#2a2e35;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink);
+    background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size:14px 14px;
+    color:var(--paper);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:20px 16px 70px;}
+
+  header{
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:linear-gradient(180deg,var(--ink-2),var(--ink));
+    padding:20px;
+    margin-bottom:18px;
+    position:relative;
+    overflow:hidden;
+  }
+  header::before{
+    content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(135deg, rgba(195,31,57,0.06) 0 2px, transparent 2px 14px);
+    pointer-events:none;
+  }
+  .eyebrow{
+    font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.18em;
+    color:var(--gold);text-transform:uppercase;margin:0 0 6px;
+  }
+  h1{
+    font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;
+    text-transform:uppercase;letter-spacing:.01em;margin:0 0 6px;
+  }
+  .sub{font-size:13px;color:var(--paper-dim);margin:0;line-height:1.5;}
+
+  .panel{
+    border:1px solid var(--line);border-radius:10px;
+    background:var(--ink-2);padding:16px;margin-bottom:16px;
+  }
+  .drop{
+    position:relative;display:block;
+    border:2px dashed #3a4049;border-radius:8px;
+    padding:26px 16px;text-align:center;cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .drop:hover,.drop.over{border-color:var(--crimson);background:rgba(195,31,57,.06);}
+  .drop:focus-within{outline:2px solid var(--gold);outline-offset:2px;}
+  .drop-title{font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;letter-spacing:.04em;}
+  .drop-note{font-size:12px;color:var(--paper-dim);margin-top:5px;}
+  /* Transparent overlay, NOT display:none — mobile WebViews refuse to open
+     a picker for a hidden input, so the tap must land on the input itself. */
+  .drop input[type=file]{
+    position:absolute;top:0;left:0;width:100%;height:100%;
+    opacity:0;cursor:pointer;
+  }
+
+  .thumbs{display:flex;gap:7px;overflow-x:auto;margin-top:14px;padding-bottom:4px;}
+  .thumbs::-webkit-scrollbar{height:5px;}
+  .thumbs::-webkit-scrollbar-thumb{background:#33383f;border-radius:3px;}
+  .thumb{position:relative;flex:0 0 auto;}
+  .thumb img{
+    height:84px;width:auto;border-radius:5px;border:1px solid var(--line);display:block;
+  }
+  .thumb span{
+    position:absolute;bottom:3px;left:3px;
+    font-family:'Space Mono',monospace;font-size:9px;
+    background:rgba(12,14,17,.85);color:var(--gold);
+    padding:1px 4px;border-radius:3px;
+  }
+
+  .row{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;}
+  label.fld{font-family:'Space Mono',monospace;font-size:11px;color:var(--paper-dim);letter-spacing:.05em;}
+  input[type=number]{
+    background:var(--ink);border:1px solid var(--line);color:var(--paper);
+    border-radius:5px;padding:7px 9px;width:74px;font-family:'Space Mono',monospace;font-size:13px;
+  }
+  input[type=number]:focus,button:focus-visible,.drop:focus-visible{
+    outline:2px solid var(--gold);outline-offset:2px;
+  }
+
+  button.primary{
+    font-family:'Oswald',sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:.06em;
+    background:var(--crimson);color:var(--paper);border:none;
+    padding:11px 20px;border-radius:6px;cursor:pointer;margin-left:auto;
+    transition:background .15s ease;
+  }
+  button.primary:hover:not(:disabled){background:#a51930;}
+  button.primary:disabled{background:#3a3d43;color:#6d7278;cursor:not-allowed;}
+
+  button.ghost{
+    font-family:'Space Mono',monospace;font-size:11px;
+    background:none;border:1px solid var(--line);color:var(--paper-dim);
+    padding:5px 9px;border-radius:5px;cursor:pointer;
+  }
+  button.ghost:hover{color:var(--gold);border-color:var(--gold);}
+
+  .status{
+    font-family:'Space Mono',monospace;font-size:12px;color:var(--gold);
+    margin-top:12px;display:none;
+  }
+  .status.on{display:block;}
+  .status.err{color:#e8697f;}
+
+  /* cue cards */
+  .cue{
+    border:1px solid var(--line);border-left:4px solid var(--steel);
+    border-radius:8px;background:var(--ink-2);
+    padding:14px;margin-bottom:12px;
+  }
+  .cue-head{display:flex;align-items:baseline;gap:10px;margin-bottom:3px;flex-wrap:wrap;}
+  .cue-id{
+    font-family:'Space Mono',monospace;font-weight:700;font-size:13px;color:var(--crimson);
+  }
+  .cue-pages{font-family:'Space Mono',monospace;font-size:11px;color:var(--paper-dim);}
+  .cue-title{
+    font-family:'Oswald',sans-serif;font-size:17px;text-transform:uppercase;
+    letter-spacing:.02em;margin:2px 0 3px;
+  }
+  .cue-setting{font-size:12.5px;color:var(--paper-dim);margin-bottom:11px;font-style:italic;}
+
+  .meter-row{display:flex;align-items:center;gap:9px;margin-bottom:12px;}
+  .meter-label{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--paper-dim);letter-spacing:.1em;}
+  .meter{
+    flex:1;height:12px;display:flex;gap:2px;
+  }
+  .seg{flex:1;border-radius:1px;background:#22262d;}
+  .seg.lit{background:var(--gold);}
+  .seg.lit.hot{background:var(--crimson);}
+  .meter-val{font-family:'Space Mono',monospace;font-size:11px;color:var(--gold);min-width:30px;text-align:right;}
+
+  .prompt-box{
+    background:var(--ink);border:1px solid var(--line);border-radius:6px;
+    padding:11px;font-size:13px;line-height:1.55;color:var(--paper);
+  }
+  .prompt-box .cap{
+    font-family:'Space Mono',monospace;font-size:9.5px;color:var(--paper-dim);
+    letter-spacing:.1em;display:block;margin-bottom:5px;
+  }
+  .avoid{
+    font-family:'Space Mono',monospace;font-size:11px;color:var(--paper-dim);
+    margin-top:9px;
+  }
+  .avoid b{color:#e8697f;font-weight:400;}
+  .splash{
+    position:fixed;inset:0;z-index:200;
+    background:var(--ink);
+    background-image:
+      radial-gradient(circle at 50% 34%, rgba(60,70,84,.55), transparent 62%),
+      radial-gradient(circle at 1px 1px, rgba(195,31,57,.16) 1.6px, transparent 1.6px);
+    background-size:auto, 22px 22px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:0;padding:24px;
+    opacity:1;transition:opacity .5s ease;
+  }
+  .splash.gone{opacity:0;pointer-events:none;}
+  .sp-mark{width:min(46vw,190px);height:auto;display:block;
+    filter:drop-shadow(0 10px 26px rgba(0,0,0,.6));}
+  .sp-eyebrow{
+    font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.2em;
+    color:var(--gold);margin:26px 0 0;text-transform:uppercase;
+  }
+  .sp-title{
+    font-family:'Oswald',sans-serif;font-weight:700;
+    font-size:clamp(30px,8.5vw,44px);letter-spacing:.02em;
+    color:var(--paper);margin:8px 0 0;text-transform:uppercase;
+  }
+  .sp-tag{font-size:13.5px;color:var(--paper-dim);margin:8px 0 0;}
+  @media (prefers-reduced-motion: reduce){
+    .splash{transition:none;}
+  }
+
+  .playbar{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:rgba(21,24,29,.97);border-top:1px solid var(--line);
+    backdrop-filter:blur(8px);
+    transform:translateY(110%);transition:transform .28s ease;
+  }
+  .playbar.up{transform:translateY(0);}
+  .pb-inner{
+    max-width:720px;margin:0 auto;padding:11px 16px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .pb-now{flex:1;min-width:0;}
+  .pb-cue{
+    font-family:'Space Mono',monospace;font-weight:700;font-size:11px;
+    color:var(--crimson);display:block;
+  }
+  .pb-title{
+    font-family:'Oswald',sans-serif;font-size:14px;text-transform:uppercase;
+    letter-spacing:.02em;color:var(--paper);
+    display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .pb-ctrls{display:flex;align-items:center;gap:6px;}
+  .pbtn{
+    background:none;border:1px solid var(--line);color:var(--paper);
+    width:38px;height:38px;border-radius:6px;cursor:pointer;
+    font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;
+  }
+  .pbtn:hover:not(:disabled){border-color:var(--gold);color:var(--gold);}
+  .pbtn:disabled{opacity:.3;cursor:not-allowed;}
+  .pbtn.play{background:var(--crimson);border-color:var(--crimson);}
+  .pbtn.play:hover{background:#a51930;color:var(--paper);}
+  .pbtn.mode{
+    width:auto;padding:0 10px;font-family:'Space Mono',monospace;font-size:10px;
+    letter-spacing:.06em;color:var(--gold);border-color:var(--line);
+  }
+  .wrap{padding-bottom:96px;}
+
+  .cue-actions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;}
+  .audio-note{
+    font-family:'Space Mono',monospace;font-size:11.5px;color:var(--gold);
+    margin-top:10px;line-height:1.6;
+  }
+  .audio-note.err{color:#e8697f;}
+  .audiowrap audio{border-radius:6px;}
+  button.dl{
+    display:inline-block;margin-top:8px;
+    font-family:'Space Mono',monospace;font-size:11px;
+    color:var(--paper-dim);background:none;border:1px solid var(--line);
+    padding:6px 10px;border-radius:5px;cursor:pointer;
+  }
+  button.dl:hover{color:var(--gold);border-color:var(--gold);}
+
+  details.keybox summary{
+    font-family:'Space Mono',monospace;font-size:11.5px;color:var(--paper-dim);
+    cursor:pointer;letter-spacing:.05em;list-style:none;
+  }
+  details.keybox summary::-webkit-details-marker{display:none;}
+  details.keybox summary:hover{color:var(--paper);}
+  details.keybox summary .dot{
+    display:inline-block;width:7px;height:7px;border-radius:50%;
+    margin-right:7px;vertical-align:middle;background:#5c626a;
+  }
+  details.keybox summary .dot.ok{background:#4ea36a;}
+  details.keybox summary .dot.no{background:var(--crimson);}
+  .keyrow{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap;}
+  .keyrow input{
+    flex:1;min-width:180px;background:var(--ink);border:1px solid var(--line);
+    color:var(--paper);border-radius:5px;padding:8px 10px;
+    font-family:'Space Mono',monospace;font-size:12px;
+  }
+  .keyrow input:focus{outline:2px solid var(--gold);outline-offset:2px;}
+  .keynote{font-size:11.5px;color:#5c626a;line-height:1.55;margin:9px 0 0;}
+
+  details.promptview{margin-top:14px;}
+  details.promptview summary{
+    font-family:'Space Mono',monospace;font-size:11px;color:var(--paper-dim);
+    cursor:pointer;letter-spacing:.05em;
+  }
+  details.promptview summary:hover{color:var(--gold);}
+  details.promptview pre{
+    background:var(--ink);border:1px solid var(--line);border-radius:6px;
+    padding:11px;font-size:11px;line-height:1.5;color:var(--paper-dim);
+    white-space:pre-wrap;margin-top:9px;font-family:'Space Mono',monospace;
+  }
+
+  .empty{
+    text-align:center;color:#5c626a;font-family:'Space Mono',monospace;
+    font-size:12px;padding:26px 12px;line-height:1.7;
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
+</style>
+</head>
+<body>
+<div class="splash" id="splash" aria-hidden="true">
+  <svg viewBox="0 0 240 240" class="sp-mark" role="img" aria-label="Comic Scorer">
+    <g>
+      <rect x="34" y="42" width="172" height="118" rx="21" fill="#0c0e11"/>
+      <polygon points="70,150 93,150 57,205" fill="#0c0e11"/>
+      <rect x="41" y="49" width="158" height="104" rx="16" fill="#f0e9d4"/>
+      <polygon points="75,150 90,150 61,196" fill="#f0e9d4"/>
+      <g fill="#1a1e24">
+        <rect x="61" y="94" width="19" height="42"/>
+        <rect x="88" y="76" width="19" height="60"/>
+        <rect x="115" y="103" width="19" height="33"/>
+        <rect x="169" y="89" width="19" height="47"/>
+      </g>
+      <rect x="142" y="60" width="19" height="76" fill="#c31f39"/>
+    </g>
+  </svg>
+  <p class="sp-eyebrow">SPOTTING SESSION</p>
+  <h2 class="sp-title">COMIC SCORER</h2>
+  <p class="sp-tag">Pages in. Cue sheet out.</p>
+</div>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Spotting Session</p>
+    <h1>Score a Comic Issue</h1>
+    <p class="sub">Add sequential pages from one issue. Claude reads them and returns a cue sheet — scene by scene, with a music prompt you can paste straight into Stable Audio.</p>
+  </header>
+
+  <div class="panel">
+    <details class="keybox" id="keybox">
+      <summary id="keysum">Checking key…</summary>
+      <div class="keyrow">
+        <input type="password" id="keyin" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
+        <button class="ghost" id="keysave">Save</button>
+        <button class="ghost" id="keyclear">Remove</button>
+      </div>
+      <p class="keynote">Anthropic key — reads the pages and writes the cue sheet.</p>
+    </details>
+    <details class="keybox" id="mkeybox" style="margin-top:12px;">
+      <summary id="mkeysum">Checking key…</summary>
+      <div class="keyrow">
+        <input type="password" id="mkeyin" placeholder="sk-… (Stability AI)" autocomplete="off" spellcheck="false">
+        <button class="ghost" id="mkeysave">Save</button>
+        <button class="ghost" id="mkeyclear">Remove</button>
+      </div>
+      <p class="keynote">Stability AI key — turns each cue into audio. Get one at platform.stability.ai. Without it you can still copy prompts by hand.</p>
+    </details>
+  </div>
+
+  <div class="panel">
+    <label class="drop" id="drop" for="file">
+      <div class="drop-title">Add pages</div>
+      <div class="drop-note">Tap to choose, or drop images here — up to 16, in reading order</div>
+      <input type="file" id="file" accept="image/*" multiple>
+    </label>
+    <div class="thumbs" id="thumbs"></div>
+    <div class="row">
+      <label class="fld" for="startpg">FIRST PAGE #</label>
+      <input type="number" id="startpg" value="1" min="1">
+      <button class="ghost" id="clear" style="display:none;">Clear pages</button>
+      <button class="primary" id="score" disabled>Score pages</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div id="results">
+    <div class="empty" id="empty">
+      NO CUE SHEET YET<br>
+      Add pages above, then score them.
+    </div>
+  </div>
+
+  <details class="promptview">
+    <summary>View the scoring prompt sent to Claude</summary>
+    <pre id="promptdump"></pre>
+  </details>
+</div>
+
+<div class="playbar" id="playbar">
+  <div class="pb-inner">
+    <div class="pb-now">
+      <span class="pb-cue" id="pbCue">—</span>
+      <span class="pb-title" id="pbTitle">No track loaded</span>
+    </div>
+    <div class="pb-ctrls">
+      <button class="pbtn" id="pbPrev" aria-label="Previous cue">‹</button>
+      <button class="pbtn play" id="pbPlay" aria-label="Play">▶</button>
+      <button class="pbtn" id="pbNext" aria-label="Next cue">›</button>
+      <button class="pbtn mode" id="pbMode" title="Switch between looping this cue and advancing automatically">LOOP</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SCORING_PROMPT = `You are a film composer spotting a comic book issue for an adaptive score.
+
+You will receive sequential pages from ONE issue, labeled with their page numbers.
+
+Divide them into 2-4 MOVEMENTS: contiguous page ranges that share an emotional register. Never one movement per page — music that changes every page turn sounds broken. A movement ends when the emotional register genuinely shifts.
+
+Return ONLY valid JSON. No markdown fences, no preamble, no trailing commentary.
+
+{"movements":[{"id":"M1","pages":"1-6","title":"Short scene name, 2-4 words","setting":"where and when, 6 words max","intensity":0.35,"music_prompt":"...","avoid":["...","..."]}]}
+
+music_prompt rules:
+- Instrumental ONLY. Never request vocals, lyrics, or choir unless the scene is literally a ritual chant.
+- Name specific instruments, a scale or mode, a BPM, and the dynamic arc.
+- Loop-friendly: no big one-time endings.
+- 40 words maximum.
+- Score what is ACTUALLY on the page. A quiet argument in an epic story scores quiet. Resist making everything cinematic.
+
+avoid: 2-4 short things the music model should NOT do for this scene.
+intensity: 0.0-1.0, honest to the scene, not to the franchise.`;
+
+document.getElementById('promptdump').textContent = SCORING_PROMPT;
+
+const fileInput = document.getElementById('file');
+const drop = document.getElementById('drop');
+const thumbs = document.getElementById('thumbs');
+const scoreBtn = document.getElementById('score');
+const clearBtn = document.getElementById('clear');
+const statusEl = document.getElementById('status');
+const results = document.getElementById('results');
+const emptyEl = document.getElementById('empty');
+const startPg = document.getElementById('startpg');
+
+let pages = []; // {dataUrl, b64, media}
+
+/* ---- API keys (stored on device, never in this file) ---- */
+const KEY_STORE  = 'anthropic-key';
+const MKEY_STORE = 'stability-key';
+function ls(k){ try{ return localStorage.getItem(k)||''; }catch(e){ return ''; } }
+function getKey(){ return ls(KEY_STORE); }
+function getMKey(){ return ls(MKEY_STORE); }
+
+function wireKey(store, sumId, inId, saveId, clearId, boxId, label){
+  const sum = document.getElementById(sumId);
+  const paint = ()=>{
+    const k = ls(store);
+    sum.innerHTML = k
+      ? `<span class="dot ok"></span>${label} saved &nbsp;·&nbsp; …${k.slice(-6)}`
+      : `<span class="dot no"></span>No ${label} key — tap to add`;
+    if(k) document.getElementById(inId).value='';
+  };
+  document.getElementById(saveId).onclick = ()=>{
+    const v = document.getElementById(inId).value.trim();
+    if(!v){ setStatus('Paste a key first.', true); return; }
+    try{ localStorage.setItem(store, v); }catch(e){}
+    paint();
+    document.getElementById(boxId).open = false;
+    setStatus(label+' key saved to this device.');
+    setTimeout(clearStatus, 2200);
+  };
+  document.getElementById(clearId).onclick = ()=>{
+    try{ localStorage.removeItem(store); }catch(e){}
+    document.getElementById(inId).value='';
+    paint();
+  };
+  paint();
+}
+wireKey(KEY_STORE,'keysum','keyin','keysave','keyclear','keybox','Anthropic');
+wireKey(MKEY_STORE,'mkeysum','mkeyin','mkeysave','mkeyclear','mkeybox','Stability');
+
+// The label opens the picker natively — no JS click() (mobile blocks that).
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+fileInput.onchange = e => { handleFiles(e.target.files); e.target.value=''; };
+clearBtn.onclick = ()=>{ pages=[]; renderThumbs(); };
+
+// Downscale before sending — keeps token cost sane and stays under size limits.
+function shrink(file){
+  return new Promise((res,rej)=>{
+    const img = new Image();
+    const rd = new FileReader();
+    rd.onload = ()=> img.src = rd.result;
+    rd.onerror = ()=> rej(new Error('read'));
+    img.onload = ()=>{
+      const max = 1100;
+      let {width:w, height:h} = img;
+      if(Math.max(w,h) > max){ const s = max/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+      const c = document.createElement('canvas');
+      c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      const url = c.toDataURL('image/jpeg', 0.82);
+      res({dataUrl:url, b64:url.split(',')[1], media:'image/jpeg'});
+    };
+    img.onerror = ()=> rej(new Error('decode'));
+    rd.readAsDataURL(file);
+  });
+}
+
+async function handleFiles(list){
+  const arr = Array.from(list).filter(f=>f.type.startsWith('image/'));
+  if(!arr.length) return;
+  setStatus('Preparing pages…');
+  for(const f of arr){
+    if(pages.length >= 16) break;
+    try{ pages.push(await shrink(f)); }catch(e){ /* skip unreadable file */ }
+  }
+  clearStatus();
+  renderThumbs();
+}
+
+function renderThumbs(){
+  const first = parseInt(startPg.value,10) || 1;
+  thumbs.innerHTML = '';
+  pages.forEach((p,i)=>{
+    const d = document.createElement('div');
+    d.className='thumb';
+    d.innerHTML = `<img src="${p.dataUrl}" alt=""><span>p${first+i}</span>`;
+    thumbs.appendChild(d);
+  });
+  scoreBtn.disabled = pages.length===0;
+  clearBtn.style.display = pages.length ? 'inline-block' : 'none';
+  scoreBtn.textContent = pages.length ? `Score ${pages.length} page${pages.length>1?'s':''}` : 'Score pages';
+}
+startPg.oninput = renderThumbs;
+
+function setStatus(t, err){
+  statusEl.textContent = t;
+  statusEl.className = 'status on' + (err?' err':'');
+}
+function clearStatus(){ statusEl.className='status'; }
+
+scoreBtn.onclick = async ()=>{
+  if(!pages.length) return;
+  scoreBtn.disabled = true;
+  setStatus('Reading pages… this takes a few seconds.');
+  const first = parseInt(startPg.value,10) || 1;
+
+  const content = [];
+  pages.forEach((p,i)=>{
+    content.push({type:'text', text:`Page ${first+i}:`});
+    content.push({type:'image', source:{type:'base64', media_type:p.media, data:p.b64}});
+  });
+  content.push({type:'text', text:SCORING_PROMPT});
+
+  try{
+    // With a saved key: call Anthropic directly (works in a standalone APK).
+    // Without one: fall back to the host environment supplying credentials.
+    const key = getKey();
+    const headers = {"Content-Type":"application/json"};
+    if(key){
+      headers["x-api-key"] = key;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+
+    const r = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers,
+      body: JSON.stringify({
+        model:"claude-sonnet-4-6",
+        max_tokens:1000,
+        messages:[{role:"user", content}]
+      })
+    });
+    if(r.status===401){
+      throw new Error(key ? 'That key was rejected. Check it in the key panel above.'
+                          : 'No key saved. Add one in the panel above.');
+    }
+    if(r.status===429) throw new Error('Rate limited, or the spend cap is hit. Wait a moment and retry.');
+    if(!r.ok) throw new Error('The request came back '+r.status+'. Try fewer pages.');
+    const data = await r.json();
+    let txt = (data.content||[]).map(b=>b.type==='text'?b.text:'').join('').trim();
+    txt = txt.replace(/```json/gi,'').replace(/```/g,'').trim();
+    const start = txt.indexOf('{'), end = txt.lastIndexOf('}');
+    if(start<0||end<0) throw new Error('Claude replied, but not with a cue sheet. Score it again.');
+    const parsed = JSON.parse(txt.slice(start, end+1));
+    if(!parsed.movements || !parsed.movements.length) throw new Error('No movements came back. Try adding more pages.');
+    render(parsed.movements);
+    clearStatus();
+  }catch(err){
+    setStatus(err.message || 'Something broke on the way to Claude. Try again.', true);
+  }
+  scoreBtn.disabled = false;
+};
+
+let movsOrder = [];
+function render(movs, restoring){
+  emptyEl.style.display='none';
+  results.innerHTML='';
+  movsOrder = movs;
+  if(!restoring){
+    // A new cue sheet replaces the old one, audio included.
+    player.tracks = []; player.idx = -1;
+    player.a.pause(); player.b.pause();
+    player.a.removeAttribute('src'); player.b.removeAttribute('src');
+    document.getElementById('playbar').classList.remove('up');
+    idbClear();
+  }
+  movs.forEach((m,i)=>{
+    const inten = Math.max(0, Math.min(1, Number(m.intensity)||0));
+    const lit = Math.round(inten*12);
+    let segs='';
+    for(let s=0;s<12;s++){
+      const on = s<lit;
+      segs += `<div class="seg${on?' lit':''}${on&&s>=9?' hot':''}"></div>`;
+    }
+    const avoid = Array.isArray(m.avoid)&&m.avoid.length
+      ? `<div class="avoid">AVOID &nbsp;<b>${m.avoid.join(' · ')}</b></div>` : '';
+    const el = document.createElement('div');
+    el.className='cue';
+    el.innerHTML = `
+      <div class="cue-head">
+        <span class="cue-id">${m.id||('M'+(i+1))}</span>
+        <span class="cue-pages">PAGES ${m.pages||'?'}</span>
+      </div>
+      <div class="cue-title">${esc(m.title||'Untitled cue')}</div>
+      <div class="cue-setting">${esc(m.setting||'')}</div>
+      <div class="meter-row">
+        <span class="meter-label">INTENSITY</span>
+        <div class="meter">${segs}</div>
+        <span class="meter-val">${inten.toFixed(2)}</span>
+      </div>
+      <div class="prompt-box">
+        <span class="cap">MUSIC PROMPT</span>
+        <span class="ptext">${esc(m.music_prompt||'')}</span>
+      </div>
+      ${avoid}
+      <div class="cue-actions">
+        <button class="ghost copy">Copy prompt</button>
+        <button class="ghost gen">Generate music</button>
+      </div>
+      <div class="audiowrap"></div>
+    `;
+    el.querySelector('.copy').onclick = function(){
+      const t = m.music_prompt||'';
+      navigator.clipboard.writeText(t).then(()=>{
+        this.textContent='Copied';
+        setTimeout(()=>this.textContent='Copy prompt',1400);
+      }).catch(()=>{ this.textContent='Select it manually'; });
+    };
+    el.querySelector('.gen').onclick = function(){
+      makeMusic(m, el.querySelector('.audiowrap'), this);
+    };
+    results.appendChild(el);
+  });
+}
+
+function attachAudio(wrap, url, blob, filename){
+  wrap.innerHTML = `<audio controls src="${url}" style="width:100%;margin-top:10px;"></audio>
+    <button class="dl">Send to…</button>`;
+  wrap.querySelector('.dl').onclick = function(){ exportTrack(blob, filename, this); };
+}
+
+/* ---- Stable Audio generation ---- */
+async function makeMusic(m, wrap, btn){
+  const mk = getMKey();
+  if(!mk){
+    wrap.innerHTML = `<div class="audio-note err">No Stability key saved. Add one in the key panel at the top.</div>`;
+    return;
+  }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = 'Generating…';
+  wrap.innerHTML = `<div class="audio-note">Writing the cue — this usually takes under a minute.</div>`;
+
+  const fd = new FormData();
+  fd.append('prompt', m.music_prompt||'');
+  fd.append('duration', '95');
+  fd.append('output_format', 'mp3');
+  fd.append('model', 'stable-audio-2.5');
+  fd.append('steps', '8');
+
+  try{
+    const r = await fetch('https://api.stability.ai/v2beta/audio/stable-audio-2/text-to-audio',{
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+mk, 'Accept':'audio/*' },
+      body: fd
+    });
+    if(r.status===401 || r.status===403) throw new Error('Stability rejected that key. Check it in the key panel.');
+    if(r.status===402) throw new Error('Out of Stability credits. Top up at platform.stability.ai.');
+    if(r.status===429) throw new Error('Rate limited. Wait a moment, then generate again.');
+    if(!r.ok){
+      let detail='';
+      try{ detail = ' — ' + (await r.text()).slice(0,160); }catch(e){}
+      throw new Error('Stability returned '+r.status+detail);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const safe = (m.id||'cue') + '-' + String(m.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+    attachAudio(wrap, url, blob, safe+'.mp3');
+    btn.textContent = 'Generate again';
+    registerTrack(m, url);
+    const ord = movsOrder.indexOf(m);
+    idbPut('tracks', String(ord<0?0:ord), {blob, name:safe+'.mp3'});
+    idbPut('meta','sheet', movsOrder);
+  }catch(err){
+    const net = (err instanceof TypeError);
+    wrap.innerHTML = `<div class="audio-note err">${esc(net
+      ? 'Could not reach Stability. If this works elsewhere, the request is likely being blocked by CORS — copy the prompt into stableaudio.com instead.'
+      : (err.message||'Generation failed.'))}</div>`;
+    btn.textContent = was;
+  }
+  btn.disabled = false;
+}
+/* ---- Background playback support ----
+   Android suspends a WebView when the app backgrounds, so true background
+   audio needs a native foreground service. From HTML the best we can do is:
+   (1) MediaSession — surfaces lockscreen/notification controls, and some
+       APK wrappers keep audio alive specifically when a session is active;
+   (2) Wake Lock — stops the screen sleeping, which is what kills playback
+       in the most common case. */
+let wakeLock = null;
+async function holdScreen(){
+  try{
+    if('wakeLock' in navigator && !wakeLock){
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', ()=>{ wakeLock = null; });
+    }
+  }catch(e){ /* unsupported or refused — not fatal */ }
+}
+function releaseScreen(){
+  try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
+}
+document.addEventListener('visibilitychange', ()=>{
+  // Re-acquire if we come back and audio is still going.
+  if(document.visibilityState==='visible' && !currentEl().paused) holdScreen();
+});
+
+function updateSession(){
+  if(!('mediaSession' in navigator)) return;
+  const t = player.tracks[player.idx];
+  if(!t) return;
+  try{
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: (t.id||'Cue') + ' · Comic Scorer',
+      album: 'Spotting Session'
+    });
+    navigator.mediaSession.playbackState = currentEl().paused ? 'paused' : 'playing';
+    navigator.mediaSession.setActionHandler('play', ()=>{ currentEl().play().catch(()=>{}); holdScreen(); setTimeout(paintBar,60); });
+    navigator.mediaSession.setActionHandler('pause', ()=>{ currentEl().pause(); releaseScreen(); setTimeout(paintBar,60); });
+    navigator.mediaSession.setActionHandler('nexttrack', ()=> goTo(player.idx+1, true));
+    navigator.mediaSession.setActionHandler('previoustrack', ()=> goTo(player.idx-1, true));
+  }catch(e){}
+}
+
+/* ---- Saving tracks ----
+   Android WebView ignores <a download> and blob: URLs unless the APK wrapper
+   implements a native DownloadListener. Two things that DO work from HTML:
+   the Web Share sheet (hand the file to any other app), and IndexedDB
+   (keep tracks inside this app across restarts). */
+const DB_NAME='comic-scorer', DB_VER=1;
+function idb(){
+  return new Promise((res,rej)=>{
+    const rq = indexedDB.open(DB_NAME, DB_VER);
+    rq.onupgradeneeded = ()=>{
+      const db = rq.result;
+      if(!db.objectStoreNames.contains('tracks')) db.createObjectStore('tracks');
+      if(!db.objectStoreNames.contains('meta'))   db.createObjectStore('meta');
+    };
+    rq.onsuccess = ()=>res(rq.result);
+    rq.onerror = ()=>rej(rq.error);
+  });
+}
+async function idbPut(store,key,val){
+  try{
+    const db = await idb();
+    await new Promise((res,rej)=>{
+      const tx = db.transaction(store,'readwrite');
+      tx.objectStore(store).put(val,key);
+      tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
+    });
+  }catch(e){}
+}
+async function idbGet(store,key){
+  try{
+    const db = await idb();
+    return await new Promise((res,rej)=>{
+      const tx = db.transaction(store,'readonly');
+      const rq = tx.objectStore(store).get(key);
+      rq.onsuccess=()=>res(rq.result); rq.onerror=()=>rej(rq.error);
+    });
+  }catch(e){ return undefined; }
+}
+async function idbClear(){
+  try{
+    const db = await idb();
+    ['tracks','meta'].forEach(s=>{
+      const tx = db.transaction(s,'readwrite');
+      tx.objectStore(s).clear();
+    });
+  }catch(e){}
+}
+
+async function exportTrack(blob, filename, btn){
+  const file = new File([blob], filename, {type:'audio/mpeg'});
+  // Preferred on Android: hand the file to the system share sheet.
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title: filename}); return; }
+    catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  // Desktop / permissive browsers: normal download.
+  try{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 8000);
+    if(btn){ btn.textContent='Saved'; setTimeout(()=>btn.textContent='Send to…',1600); }
+  }catch(e){
+    if(btn) btn.textContent='Not supported here';
+  }
+}
+
+function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+/* ---- Sequential player with crossfade ----
+   Cue length never matches reading speed, so LOOP is the default:
+   the current cue repeats until you advance. ADVANCE chains them
+   automatically when each track ends. */
+const player = {
+  tracks: [],        // {order, id, title, url}
+  idx: -1,
+  mode: 'LOOP',      // 'LOOP' | 'ADVANCE'
+  a: new Audio(),
+  b: new Audio(),
+  fading: false
+};
+player.a.preload = 'auto';
+player.b.preload = 'auto';
+
+function currentEl(){ return player.useB ? player.b : player.a; }
+function idleEl(){ return player.useB ? player.a : player.b; }
+
+function registerTrack(m, url){
+  const order = movsOrder.indexOf(m);
+  const t = {order: order<0?player.tracks.length:order, id:m.id||'', title:m.title||'Untitled cue', url};
+  const at = player.tracks.findIndex(x=>x.order===t.order);
+  if(at>=0) player.tracks[at]=t; else player.tracks.push(t);
+  player.tracks.sort((x,y)=>x.order-y.order);
+  document.getElementById('playbar').classList.add('up');
+  if(player.idx<0){ player.idx = 0; loadCue(0, false); }
+  paintBar();
+}
+
+function paintBar(){
+  const t = player.tracks[player.idx];
+  document.getElementById('pbCue').textContent = t ? (t.id||('M'+(player.idx+1))) : '—';
+  document.getElementById('pbTitle').textContent = t ? t.title : 'No track loaded';
+  document.getElementById('pbPrev').disabled = player.idx<=0;
+  document.getElementById('pbNext').disabled = player.idx>=player.tracks.length-1;
+  document.getElementById('pbMode').textContent = player.mode;
+  const el = currentEl();
+  document.getElementById('pbPlay').textContent = (el && !el.paused) ? '❚❚' : '▶';
+  updateSession();
+}
+
+function wireEnded(el){
+  el.onended = ()=>{
+    if(player.mode==='ADVANCE' && player.idx < player.tracks.length-1) goTo(player.idx+1, true);
+    else paintBar();
+  };
+}
+wireEnded(player.a); wireEnded(player.b);
+
+function loadCue(i, autoplay){
+  const t = player.tracks[i]; if(!t) return;
+  const el = currentEl();
+  el.src = t.url;
+  el.loop = (player.mode==='LOOP');
+  el.volume = 1;
+  if(autoplay) el.play().catch(()=>{});
+  paintBar();
+}
+
+// Crossfade so cue changes don't jar mid-read.
+function goTo(i, autoplay){
+  if(i<0 || i>=player.tracks.length || player.fading) return;
+  const from = currentEl();
+  const to = idleEl();
+  to.src = player.tracks[i].url;
+  to.loop = (player.mode==='LOOP');
+  to.volume = 0;
+  player.idx = i;
+
+  const wasPlaying = autoplay || !from.paused;
+  if(!wasPlaying){ player.useB = !player.useB; loadCue(i,false); return; }
+
+  player.fading = true;
+  to.play().catch(()=>{});
+  const dur = 1200, step = 60, ticks = dur/step;
+  let n = 0;
+  const iv = setInterval(()=>{
+    n++;
+    const p = n/ticks;
+    to.volume = Math.min(1, p);
+    from.volume = Math.max(0, 1-p);
+    if(n>=ticks){
+      clearInterval(iv);
+      from.pause(); from.volume = 1;
+      player.useB = !player.useB;
+      player.fading = false;
+      paintBar();
+    }
+  }, step);
+  paintBar();
+}
+
+document.getElementById('pbPlay').onclick = ()=>{
+  const el = currentEl();
+  if(!el.src) return;
+  if(el.paused){ el.play().catch(()=>{}); holdScreen(); }
+  else { el.pause(); releaseScreen(); }
+  setTimeout(paintBar, 60);
+};
+document.getElementById('pbNext').onclick = ()=> goTo(player.idx+1, true);
+document.getElementById('pbPrev').onclick = ()=> goTo(player.idx-1, true);
+document.getElementById('pbMode').onclick = ()=>{
+  player.mode = (player.mode==='LOOP') ? 'ADVANCE' : 'LOOP';
+  const el = currentEl();
+  el.loop = (player.mode==='LOOP');
+  paintBar();
+};
+
+/* ---- Splash: brief hold, then out of the way ---- */
+(function(){
+  const sp = document.getElementById('splash');
+  if(!sp) return;
+  const dismiss = ()=>{
+    sp.classList.add('gone');
+    setTimeout(()=>sp.remove(), 600);
+  };
+  // Long enough to register, short enough not to nag on every launch.
+  if(document.readyState === 'complete') setTimeout(dismiss, 900);
+  else window.addEventListener('load', ()=> setTimeout(dismiss, 900));
+  // Never let it trap the app if something stalls.
+  setTimeout(dismiss, 4000);
+})();
+
+/* ---- Service worker: makes the app installable and offline-capable ---- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{ /* file:// or unsupported */ });
+  });
+}
+
+/* ---- Restore the last scored issue on launch ---- */
+(async function restore(){
+  const sheet = await idbGet('meta','sheet');
+  if(!sheet || !sheet.length) return;
+  render(sheet, true);
+  const cards = results.querySelectorAll('.cue');
+  for(let i=0;i<sheet.length;i++){
+    const rec = await idbGet('tracks', String(i));
+    if(!rec || !rec.blob) continue;
+    const url = URL.createObjectURL(rec.blob);
+    const wrap = cards[i] && cards[i].querySelector('.audiowrap');
+    if(wrap) attachAudio(wrap, url, rec.blob, rec.name || ('cue-'+(i+1)+'.mp3'));
+    const gen = cards[i] && cards[i].querySelector('.gen');
+    if(gen) gen.textContent = 'Generate again';
+    registerTrack(sheet[i], url);
+  }
+  if(player.tracks.length) setStatus('Restored your last scored issue.');
+  setTimeout(clearStatus, 2600);
+})();
+</script>
+</body>
+</html>
