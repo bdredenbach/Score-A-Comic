@@ -395,14 +395,19 @@
 
   <div class="panel" id="installPanel" style="display:none;">
     <button class="primary" id="installBtn" style="margin:0;width:100%;">Install app</button>
+    <div class="audio-note" style="margin-top:12px;">
+      <strong>Android background playback:</strong> If audio stops when you switch to another app,
+      open <strong>Settings → Apps → Chrome → App battery usage</strong> and set Chrome to
+      <strong>Unrestricted</strong>. Score-A-Comic cannot change this Android setting automatically.
+    </div>
   </div>
 
   <div class="panel" id="diagPanel">
     <details class="keybox" id="diagbox">
-      <summary id="diagsum">Install readiness — tap to check</summary>
+      <summary id="diagsum">App setup &amp; install — tap to check</summary>
       <div id="diaglist" class="diaglist">Run the check to see what's missing.</div>
       <button class="ghost" id="diagrun" style="margin-top:10px;">Run check</button>
-      <button class="ghost" id="diagreset" style="margin-top:10px;">Reset app data</button>
+      <button class="ghost" id="diagreset" style="margin-top:10px;">Reset app cache</button>
     </details>
   </div>
 
@@ -418,7 +423,7 @@
     <pre id="promptdump"></pre>
   </details>
   <p class="footline" id="footTools" style="display:none;">
-    <button class="linkbtn" id="footReset">Reset app data</button>
+    <button class="linkbtn" id="footReset">Reset app cache</button>
   </p>
 </div>
 
@@ -742,16 +747,12 @@ async function makeMusic(m, wrap, btn){
   }
   btn.disabled = false;
 }
-/* ---- Background playback + queue support ----
-   Playback intentionally uses native HTMLAudio elements only.
-   Media Session exposes the player to Android's lock screen / notification
-   controls, and the next cue is preloaded into the second audio element.
-
-   This version deliberately does NOT route audio through Web Audio. The goal
-   is to keep the playback path as close as possible to Chrome's native media
-   pipeline while testing background playback on Android. */
+/* ---- Background playback support ----
+   Native HTML audio + Media Session is the most reliable browser-side path.
+   Wake Lock is only useful while the app is visible; it is NOT what keeps
+   background audio alive. Android may still stop Chrome if the OS battery
+   policy restricts Chrome. */
 let wakeLock = null;
-
 async function holdScreen(){
   // Wake Lock is only useful while the app is visible. It is NOT what keeps
   // background audio alive.
@@ -763,7 +764,6 @@ async function holdScreen(){
     }
   }catch(e){}
 }
-
 function releaseScreen(){
   try{
     if(wakeLock){ wakeLock.release(); wakeLock = null; }
@@ -777,7 +777,6 @@ function setSessionState(){
       currentEl().paused ? 'paused' : 'playing';
   }catch(e){}
 }
-
 function updatePositionState(){
   if(!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
   const el = currentEl();
@@ -792,7 +791,6 @@ function updatePositionState(){
     });
   }catch(e){}
 }
-
 function reconcilePlayback(){
   const el = currentEl();
   if(!el) return;
@@ -808,7 +806,6 @@ function reconcilePlayback(){
     goTo(player.idx + 1, true);
     return;
   }
-
   if(player.pendingPlay && el.paused && el.src){
     el.play().then(()=>{
       player.pendingPlay = false;
@@ -833,7 +830,6 @@ document.addEventListener('visibilitychange', ()=>{
 });
 
 window.addEventListener('pageshow', reconcilePlayback);
-
 function updateSession(){
   if(!('mediaSession' in navigator)) return;
   const t = player.tracks[player.idx];
@@ -853,7 +849,6 @@ function updateSession(){
 /* Register Media Session controls once. */
 (function wireMediaSession(){
   if(!('mediaSession' in navigator)) return;
-
   const safe = (name, fn)=>{
     try{ navigator.mediaSession.setActionHandler(name, fn); }catch(e){}
   };
@@ -872,7 +867,6 @@ function updateSession(){
       paintBar();
     });
   });
-
   safe('pause', ()=>{
     currentEl().pause();
     player.pendingPlay = false;
@@ -888,7 +882,6 @@ function updateSession(){
   safe('previoustrack', ()=>{
     if(player.idx > 0) goTo(player.idx - 1, true);
   });
-
   safe('seekbackward', details=>{
     const el = currentEl();
     el.currentTime = Math.max(0, el.currentTime - (details.seekOffset || 10));
@@ -904,7 +897,6 @@ function updateSession(){
     updatePositionState();
   });
 })();
-
 /* ---- Saving tracks ----
    Android WebView ignores <a download> and blob: URLs unless the APK wrapper
    implements a native DownloadListener. Two things that DO work from HTML:
@@ -978,8 +970,7 @@ function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;',
 /* ---- Sequential player: native HTML audio ----
    Cue length never matches reading speed, so LOOP is the default.
    ADVANCE chains cues automatically when each track ends.
-
-   This test version intentionally uses native HTMLAudio playback without
+   This version intentionally uses native HTMLAudio playback without
    Web Audio or gain nodes. The second audio element preloads the next cue
    so the browser already has it ready when ADVANCE needs it. */
 const player = {
@@ -991,7 +982,6 @@ const player = {
   b: new Audio(),
   pendingPlay: false
 };
-
 player.a.preload = 'auto';
 player.b.preload = 'auto';
 player.a.setAttribute('playsinline','');
@@ -1010,7 +1000,6 @@ function clearIdle(){
 function preloadNext(){
   const next = player.tracks[player.idx + 1];
   const idle = idleEl();
-
   if(!next){
     clearIdle();
     return;
@@ -1034,7 +1023,6 @@ function registerTrack(m, url){
     title: m.title||'Untitled cue',
     url
   };
-
   const at = player.tracks.findIndex(x=>x.order===t.order);
   if(at>=0) player.tracks[at]=t;
   else player.tracks.push(t);
@@ -1057,7 +1045,6 @@ function paintBar(){
 
   document.getElementById('pbCue').textContent =
     t ? (t.id||('M'+(player.idx+1))) : '—';
-
   document.getElementById('pbTitle').textContent =
     t ? t.title : 'No track loaded';
 
@@ -1073,7 +1060,6 @@ function paintBar(){
 
   updateSession();
 }
-
 function wireAudioEvents(el){
   el.addEventListener('ended', ()=>{
     if(el !== currentEl()) return;
@@ -1095,7 +1081,6 @@ function wireAudioEvents(el){
     updatePositionState();
     paintBar();
   });
-
   el.addEventListener('pause', ()=>{
     if(el !== currentEl()) return;
     setSessionState();
@@ -1120,7 +1105,6 @@ function wireAudioEvents(el){
     paintBar();
   });
 }
-
 wireAudioEvents(player.a);
 wireAudioEvents(player.b);
 
@@ -1146,7 +1130,6 @@ function loadCue(i, autoplay){
       paintBar();
     });
   }
-
   preloadNext();
   paintBar();
 }
@@ -1166,7 +1149,6 @@ function goTo(i, autoplay){
     to.preload = 'auto';
     try{ to.load(); }catch(e){}
   }
-
   to.loop = (player.mode === 'LOOP');
   to.volume = 1;
 
@@ -1181,7 +1163,6 @@ function goTo(i, autoplay){
   from.volume = 1;
 
   player.useB = !player.useB;
-
   if(shouldPlay){
     to.play().then(()=>{
       player.pendingPlay = false;
@@ -1203,7 +1184,6 @@ function goTo(i, autoplay){
 document.getElementById('pbPlay').onclick = ()=>{
   const el = currentEl();
   if(!el.src) return;
-
   if(el.paused){
     el.play().then(()=>{
       player.pendingPlay = false;
@@ -1228,7 +1208,6 @@ document.getElementById('pbNext').onclick =
 
 document.getElementById('pbPrev').onclick =
   ()=> goTo(player.idx-1,true);
-
 document.getElementById('pbMode').onclick = ()=>{
   player.mode = (player.mode==='LOOP') ? 'ADVANCE' : 'LOOP';
 
@@ -1242,7 +1221,6 @@ document.getElementById('pbMode').onclick = ()=>{
 
   paintBar();
 };
-
 /* ---- Install prompt + readiness diagnostics ----
    Chrome only offers "Install app" when every criterion passes; otherwise it
    silently degrades to a plain shortcut. This reports which one failed. */
@@ -1273,8 +1251,7 @@ async function runDiag(){
     `<div><span class="${state}">${state==='ok'?'✔':state==='bad'?'✘':'!'}</span> ${text}</div>` +
     (fix ? `<span class="fixnote">${fix}</span>` : '');
 
-  out.push(line('warn','Build running in this tab: '+BUILD,
-    'If this does not match the build you just uploaded, you are seeing a cached copy — hit Reset app data below.'));
+  out.push(line('ok','Build '+BUILD));
 
   // 1. HTTPS
   const secure = location.protocol==='https:' || location.hostname==='localhost';
@@ -1297,14 +1274,13 @@ async function runDiag(){
   }
   else{
     out.push(window.__manifestInjected
-      ? line('warn','Manifest link was missing from the served HTML — added at runtime',
-             'Install should still work. It means the head tag is not reaching the browser; worth checking view-source, but not blocking.')
+      ? line('ok','Manifest link installed at runtime')
       : line('ok','Manifest link present in the page'));
     try{
       const r = await fetch(mlink.href, {cache:'no-store'});
       if(!r.ok) throw new Error(r.status);
       const mf = await r.json();
-      out.push(line('ok','Manifest loads ('+mlink.getAttribute('href')+')'));
+      out.push(line('ok','Manifest loads'));
       const disp = mf.display||'';
       out.push(['standalone','fullscreen','minimal-ui'].includes(disp)
         ? line('ok','display: '+disp)
@@ -1315,14 +1291,20 @@ async function runDiag(){
       out.push((has192&&has512)
         ? line('ok','Manifest lists 192px and 512px icons')
         : line('bad','Missing a 192px or 512px icon entry'));
+      const iconChecks = [];
       for(const ic of icons.slice(0,3)){
         const u = new URL(ic.src, mlink.href).href;
         try{
           const ir = await fetch(u, {cache:'no-store'});
-          out.push(ir.ok ? line('ok','Icon found: '+ic.src)
-                         : line('bad','Icon missing: '+ic.src+' ('+ir.status+')','Upload this file next to manifest.json.'));
-        }catch(e){ out.push(line('bad','Icon unreachable: '+ic.src)); }
+          iconChecks.push({ic, ok: ir.ok, status: ir.status});
+        }catch(e){ iconChecks.push({ic, ok:false, status:'unreachable'}); }
       }
+      const has192File = iconChecks.some(x=>x.ok && (x.ic.sizes||'').includes('192'));
+      const has512File = iconChecks.some(x=>x.ok && (x.ic.sizes||'').includes('512'));
+      const hasMaskable = iconChecks.some(x=>x.ok && String(x.ic.purpose||'').includes('maskable'));
+      out.push(has192File ? line('ok','192px icon available') : line('bad','192px icon missing','Upload scorer-icon-192.png next to manifest.json.'));
+      out.push(has512File ? line('ok','512px icon available') : line('bad','512px icon missing','Upload scorer-icon-512.png next to manifest.json.'));
+      if(hasMaskable) out.push(line('ok','Maskable icon available'));
     }catch(e){
       out.push(line('bad','Manifest failed to load','Check manifest.json sits beside index.html and returns JSON, not a 404 page.'));
     }
@@ -1339,7 +1321,7 @@ async function runDiag(){
       } else {
         try{
           await navigator.serviceWorker.register('sw.js');
-          out.push(line('ok','Service worker registered just now — reload, then re-check'));
+          out.push(line('ok','Service worker registered'));
         }catch(err){
           out.push(line('bad','Service worker failed: '+(err.message||err),
             'Usually sw.js is missing, or the host serves it as text/html instead of JavaScript.'));
@@ -1351,14 +1333,14 @@ async function runDiag(){
   // 4. Did Chrome offer to install?
   out.push(deferredPrompt
     ? line('ok','Chrome is offering install — use the button above')
-    : line('warn','No install prompt yet',
-        'If everything above passes, reload once and wait a few seconds. Already-installed apps also stop prompting. Firefox and some browsers never fire this.'));
+    : line('ok','Install prompt not currently available',
+        'This is normal when the app is already installed or the browser does not expose an install prompt. Use the browser install option when available.'));
 
   document.getElementById('diaglist').innerHTML = out.join('');
 }
 document.getElementById('diagrun').onclick = runDiag;
 
-/* Nuclear option: drop every service worker and cache for this origin,
+/* Reset app cache: drop every service worker and cache for this origin,
    then reload past the HTTP cache. Your keys and saved tracks are untouched. */
 async function hardReset(btn){
   if(btn) btn.textContent = 'Clearing…';
