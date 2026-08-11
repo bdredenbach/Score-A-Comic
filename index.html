@@ -335,7 +335,13 @@
   .issue-main{flex:1;min-width:0;}
   .issue-name{font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .issue-meta{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--paper-dim);margin-top:3px;}
-  .issue-delete{flex:0 0 auto;}
+  .issue-delete,.issue-rename{flex:0 0 auto;}
+  .issue-rename-input{
+    width:100%;min-width:0;background:var(--ink-2);border:1px solid var(--gold);
+    color:var(--paper);border-radius:5px;padding:6px 8px;
+    font-family:'Oswald',sans-serif;font-size:15px;
+  }
+  .issue-rename-actions{display:flex;gap:6px;margin-top:6px;}
   input[type=text]{background:var(--ink);border:1px solid var(--line);color:var(--paper);border-radius:5px;padding:7px 9px;font-family:'Inter',sans-serif;font-size:13px;min-width:180px;flex:1;}
   input[type=text]:focus{outline:2px solid var(--gold);outline-offset:2px;}
   @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
@@ -410,6 +416,7 @@
     <div class="row">
       <label class="fld" for="issueName">ISSUE NAME</label>
       <input type="text" id="issueName" placeholder="e.g. Avengers #1" maxlength="80" autocomplete="off">
+      <span class="keynote" style="flex-basis:100%;margin:0;">You can rename a saved score anytime from the list above.</span>
     </div>
     <div class="row">
       <label class="fld" for="startpg">FIRST PAGE #</label>
@@ -1069,6 +1076,15 @@ async function renderIssueList(){
     const cues = Array.isArray(issue.sheet) ? issue.sheet.length : 0;
     meta.textContent = cues+' cue'+(cues===1?'':'s')+' · '+new Date(issue.updatedAt||issue.createdAt||Date.now()).toLocaleDateString();
     main.append(nm,meta);
+    const rename = document.createElement('button');
+    rename.className='ghost issue-rename';
+    rename.textContent='Rename';
+    rename.setAttribute('aria-label','Rename '+(issue.name||'Untitled Issue'));
+    rename.onclick = e=>{
+      e.stopPropagation();
+      startIssueRename(card, main, issue);
+    };
+
     const del = document.createElement('button'); del.className='ghost issue-delete'; del.textContent='Delete';
     del.onclick = async e=>{
       e.stopPropagation();
@@ -1078,11 +1094,85 @@ async function renderIssueList(){
       if(currentIssueId===issue.id) beginNewScore();
       await renderIssueList();
     };
-    card.append(main,del);
+    card.append(main,rename,del);
     card.onclick = ()=>loadIssue(issue.id);
     issueList.appendChild(card);
   });
 }
+function startIssueRename(card, main, issue){
+  if(card.dataset.renaming==='1') return;
+  card.dataset.renaming='1';
+
+  const original = issue.name || 'Untitled Issue';
+  const oldMain = main.innerHTML;
+  const input = document.createElement('input');
+  input.type='text';
+  input.className='issue-rename-input';
+  input.value=original;
+  input.maxLength=80;
+  input.autocomplete='off';
+  input.setAttribute('aria-label','Score name');
+
+  const actions = document.createElement('div');
+  actions.className='issue-rename-actions';
+
+  const save = document.createElement('button');
+  save.className='ghost';
+  save.textContent='Save';
+
+  const cancel = document.createElement('button');
+  cancel.className='ghost';
+  cancel.textContent='Cancel';
+
+  actions.append(save,cancel);
+  main.innerHTML='';
+  main.append(input,actions);
+
+  const finish = (saved)=>{
+    if(!saved){
+      main.innerHTML=oldMain;
+      card.dataset.renaming='0';
+    }
+  };
+
+  cancel.onclick = e=>{
+    e.stopPropagation();
+    finish(false);
+  };
+
+  const commit = async e=>{
+    if(e) e.stopPropagation();
+    const next = input.value.trim();
+    if(!next){
+      input.focus();
+      setStatus('A score needs a name.', true);
+      return;
+    }
+    issue.name = next;
+    issue.updatedAt = Date.now();
+    await idbPut('issues', issue.id, issue);
+
+    if(currentIssueId===issue.id){
+      currentIssueName = next;
+      currentIssue = issue;
+      issueName.value = next;
+    }
+
+    await renderIssueList();
+    setStatus('Renamed to “'+next+'”.');
+    setTimeout(clearStatus,1800);
+  };
+
+  save.onclick = commit;
+  input.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); commit(e); }
+    if(e.key==='Escape'){ e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('click', e=>e.stopPropagation());
+  input.focus();
+  input.select();
+}
+
 async function loadIssue(id){
   const issue = await idbGet('issues',id);
   if(!issue || !Array.isArray(issue.sheet)) return;
