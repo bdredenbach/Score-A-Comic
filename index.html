@@ -325,6 +325,19 @@
     text-align:center;color:#5c626a;font-family:'Space Mono',monospace;
     font-size:12px;padding:26px 12px;line-height:1.7;
   }
+
+  .section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .section-title{font-family:'Space Mono',monospace;font-size:11px;color:var(--paper-dim);letter-spacing:.08em;}
+  .issue-list{display:grid;gap:8px;}
+  .issue-card{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:var(--ink);cursor:pointer;}
+  .issue-card:hover{border-color:var(--gold);}
+  .issue-card.current{border-color:var(--crimson);box-shadow:inset 3px 0 0 var(--crimson);}
+  .issue-main{flex:1;min-width:0;}
+  .issue-name{font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .issue-meta{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--paper-dim);margin-top:3px;}
+  .issue-delete{flex:0 0 auto;}
+  input[type=text]{background:var(--ink);border:1px solid var(--line);color:var(--paper);border-radius:5px;padding:7px 9px;font-family:'Inter',sans-serif;font-size:13px;min-width:180px;flex:1;}
+  input[type=text]:focus{outline:2px solid var(--gold);outline-offset:2px;}
   @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
 </style>
 </head>
@@ -356,6 +369,16 @@
     <p class="sub">Add sequential pages from one issue. Claude reads them and returns a cue sheet — scene by scene, with a music prompt you can paste straight into Stable Audio.</p>
   </header>
 
+  <div class="panel" id="libraryPanel">
+    <div class="section-head">
+      <span class="section-title">SCORED ISSUES</span>
+      <button class="ghost" id="newIssue">New score</button>
+    </div>
+    <div class="issue-list" id="issueList">
+      <div class="empty">NO SAVED ISSUES YET</div>
+    </div>
+  </div>
+
   <div class="panel">
     <details class="keybox" id="keybox">
       <summary id="keysum">Checking key…</summary>
@@ -384,6 +407,10 @@
       <input type="file" id="file" accept="image/*" multiple>
     </label>
     <div class="thumbs" id="thumbs"></div>
+    <div class="row">
+      <label class="fld" for="issueName">ISSUE NAME</label>
+      <input type="text" id="issueName" placeholder="e.g. Avengers #1" maxlength="80" autocomplete="off">
+    </div>
     <div class="row">
       <label class="fld" for="startpg">FIRST PAGE #</label>
       <input type="number" id="startpg" value="1" min="1">
@@ -474,6 +501,9 @@ const statusEl = document.getElementById('status');
 const results = document.getElementById('results');
 const emptyEl = document.getElementById('empty');
 const startPg = document.getElementById('startpg');
+const issueName = document.getElementById('issueName');
+const issueList = document.getElementById('issueList');
+const newIssueBtn = document.getElementById('newIssue');
 
 let pages = []; // {dataUrl, b64, media}
 
@@ -518,6 +548,34 @@ wireKey(MKEY_STORE,'mkeysum','mkeyin','mkeysave','mkeyclear','mkeybox','Stabilit
 drop.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
 fileInput.onchange = e => { handleFiles(e.target.files); e.target.value=''; };
 clearBtn.onclick = ()=>{ pages=[]; renderThumbs(); };
+
+function makeId(){
+  try{ return crypto.randomUUID(); }catch(e){ return 'issue-'+Date.now()+'-'+Math.random().toString(36).slice(2,8); }
+}
+let currentIssueId = null;
+let currentIssueName = '';
+let currentIssue = null;
+
+function stopPlayer(){
+  player.tracks = []; player.idx = -1; player.pendingPlay = false;
+  try{ player.a.pause(); player.b.pause(); }catch(e){}
+  player.a.removeAttribute('src'); player.b.removeAttribute('src');
+  try{ player.a.load(); player.b.load(); }catch(e){}
+  document.getElementById('playbar').classList.remove('up');
+}
+
+function beginNewScore(){
+  currentIssueId = null; currentIssueName = ''; currentIssue = null;
+  issueName.value = '';
+  pages = []; renderThumbs();
+  results.innerHTML=''; emptyEl.style.display='block';
+  stopPlayer();
+  setStatus('New score ready. Add pages above.');
+  setTimeout(clearStatus,1800);
+  renderIssueList();
+}
+newIssueBtn.onclick = beginNewScore;
+issueName.addEventListener('input', ()=>{ currentIssueName = issueName.value.trim(); });
 
 // Downscale before sending — keeps token cost sane and stays under size limits.
 function shrink(file){
@@ -620,7 +678,12 @@ scoreBtn.onclick = async ()=>{
     if(start<0||end<0) throw new Error('Claude replied, but not with a cue sheet. Score it again.');
     const parsed = JSON.parse(txt.slice(start, end+1));
     if(!parsed.movements || !parsed.movements.length) throw new Error('No movements came back. Try adding more pages.');
-    render(parsed.movements);
+    if(!currentIssueId) currentIssueId = makeId();
+    currentIssueName = issueName.value.trim() || 'Untitled Issue';
+    issueName.value = currentIssueName;
+    await saveIssue({id:currentIssueId,name:currentIssueName,sheet:parsed.movements,createdAt:Date.now(),updatedAt:Date.now(),tracks:[]}, true);
+    render(parsed.movements, false, currentIssueId, currentIssueName);
+    await renderIssueList();
     clearStatus();
   }catch(err){
     setStatus(err.message || 'Something broke on the way to Claude. Try again.', true);
@@ -629,18 +692,13 @@ scoreBtn.onclick = async ()=>{
 };
 
 let movsOrder = [];
-function render(movs, restoring){
+function render(movs, restoring, issueId, name){
   emptyEl.style.display='none';
   results.innerHTML='';
   movsOrder = movs;
-  if(!restoring){
-    // A new cue sheet replaces the old one, audio included.
-    player.tracks = []; player.idx = -1;
-    player.a.pause(); player.b.pause();
-    player.a.removeAttribute('src'); player.b.removeAttribute('src');
-    document.getElementById('playbar').classList.remove('up');
-    idbClear();
-  }
+  if(issueId) currentIssueId = issueId;
+  if(name){ currentIssueName = name; issueName.value = name; }
+  if(!restoring){ stopPlayer(); }
   movs.forEach((m,i)=>{
     const inten = Math.max(0, Math.min(1, Number(m.intensity)||0));
     const lit = Math.round(inten*12);
@@ -650,13 +708,13 @@ function render(movs, restoring){
       segs += `<div class="seg${on?' lit':''}${on&&s>=9?' hot':''}"></div>`;
     }
     const avoid = Array.isArray(m.avoid)&&m.avoid.length
-      ? `<div class="avoid">AVOID &nbsp;<b>${m.avoid.join(' · ')}</b></div>` : '';
+      ? `<div class="avoid">AVOID &nbsp;<b>${m.avoid.map(esc).join(' · ')}</b></div>` : '';
     const el = document.createElement('div');
     el.className='cue';
     el.innerHTML = `
       <div class="cue-head">
-        <span class="cue-id">${m.id||('M'+(i+1))}</span>
-        <span class="cue-pages">PAGES ${m.pages||'?'}</span>
+        <span class="cue-id">${esc(m.id||('M'+(i+1)))}</span>
+        <span class="cue-pages">PAGES ${esc(m.pages||'?')}</span>
       </div>
       <div class="cue-title">${esc(m.title||'Untitled cue')}</div>
       <div class="cue-setting">${esc(m.setting||'')}</div>
@@ -736,8 +794,12 @@ async function makeMusic(m, wrap, btn){
     btn.textContent = 'Generate again';
     registerTrack(m, url);
     const ord = movsOrder.indexOf(m);
-    idbPut('tracks', String(ord<0?0:ord), {blob, name:safe+'.mp3'});
-    idbPut('meta','sheet', movsOrder);
+    if(currentIssueId){
+      await idbPut('tracks', currentIssueId+':'+String(ord<0?0:ord), {blob, name:safe+'.mp3'});
+      const issue = await idbGet('issues', currentIssueId);
+      if(issue){ issue.updatedAt = Date.now(); await idbPut('issues', currentIssueId, issue); await idbPut('meta','currentIssueId', currentIssueId); }
+      await renderIssueList();
+    }
   }catch(err){
     const net = (err instanceof TypeError);
     wrap.innerHTML = `<div class="audio-note err">${esc(net
@@ -838,8 +900,9 @@ function updateSession(){
   try{
     navigator.mediaSession.metadata = new MediaMetadata({
       title: t.title,
-      artist: (t.id||'Cue') + ' · Comic Scorer',
-      album: 'Spotting Session'
+      artist: (t.id||'Cue') + ' · Score-A-Comic',
+      album: currentIssueName || 'Spotting Session',
+      artwork: [{src:'scorer-icon-512.png', sizes:'512x512', type:'image/png'}]
     });
     setSessionState();
     updatePositionState();
@@ -902,7 +965,7 @@ function updateSession(){
    implements a native DownloadListener. Two things that DO work from HTML:
    the Web Share sheet (hand the file to any other app), and IndexedDB
    (keep tracks inside this app across restarts). */
-const DB_NAME='comic-scorer', DB_VER=1;
+const DB_NAME='comic-scorer', DB_VER=2;
 function idb(){
   return new Promise((res,rej)=>{
     const rq = indexedDB.open(DB_NAME, DB_VER);
@@ -910,6 +973,7 @@ function idb(){
       const db = rq.result;
       if(!db.objectStoreNames.contains('tracks')) db.createObjectStore('tracks');
       if(!db.objectStoreNames.contains('meta'))   db.createObjectStore('meta');
+      if(!db.objectStoreNames.contains('issues')) db.createObjectStore('issues');
     };
     rq.onsuccess = ()=>res(rq.result);
     rq.onerror = ()=>rej(rq.error);
@@ -935,6 +999,26 @@ async function idbGet(store,key){
     });
   }catch(e){ return undefined; }
 }
+async function idbGetAll(store){
+  try{
+    const db = await idb();
+    return await new Promise((res,rej)=>{
+      const tx = db.transaction(store,'readonly');
+      const rq = tx.objectStore(store).getAll();
+      rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>rej(rq.error);
+    });
+  }catch(e){ return []; }
+}
+async function idbDelete(store,key){
+  try{
+    const db = await idb();
+    await new Promise((res,rej)=>{
+      const tx = db.transaction(store,'readwrite');
+      tx.objectStore(store).delete(key);
+      tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
+    });
+  }catch(e){}
+}
 async function idbClear(){
   try{
     const db = await idb();
@@ -944,27 +1028,82 @@ async function idbClear(){
     });
   }catch(e){}
 }
-
-async function exportTrack(blob, filename, btn){
-  const file = new File([blob], filename, {type:'audio/mpeg'});
-  // Preferred on Android: hand the file to the system share sheet.
-  if(navigator.canShare && navigator.canShare({files:[file]})){
-    try{ await navigator.share({files:[file], title: filename}); return; }
-    catch(e){ if(e && e.name==='AbortError') return; }
-  }
-  // Desktop / permissive browsers: normal download.
-  try{
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 8000);
-    if(btn){ btn.textContent='Saved'; setTimeout(()=>btn.textContent='Send to…',1600); }
-  }catch(e){
-    if(btn) btn.textContent='Not supported here';
-  }
+async function deleteIssueTracks(issueId, count){
+  if(!issueId) return;
+  for(let i=0;i<count;i++) await idbDelete('tracks', issueId+':'+i);
 }
-
+async function saveIssue(issue, clearOldTracks){
+  const existing = await idbGet('issues', issue.id);
+  if(existing){ issue.createdAt = existing.createdAt || issue.createdAt; }
+  await idbPut('issues', issue.id, issue);
+  await idbPut('meta','currentIssueId', issue.id);
+  if(clearOldTracks && existing) await deleteIssueTracks(issue.id, Math.max(existing.sheet?.length||0, issue.sheet?.length||0));
+}
+async function migrateLegacyIssue(){
+  const issues = await idbGetAll('issues');
+  if(issues.length) return issues[0];
+  const legacySheet = await idbGet('meta','sheet');
+  if(!legacySheet || !legacySheet.length) return null;
+  const id = makeId();
+  const legacy = {id,name:'Recovered Score',sheet:legacySheet,createdAt:Date.now(),updatedAt:Date.now(),tracks:[]};
+  await idbPut('issues',id,legacy);
+  for(let i=0;i<legacySheet.length;i++){
+    const rec = await idbGet('tracks',String(i));
+    if(rec && rec.blob) await idbPut('tracks',id+':'+i,rec);
+  }
+  await idbPut('meta','currentIssueId',id);
+  return legacy;
+}
+async function renderIssueList(){
+  if(!issueList) return;
+  let issues = await idbGetAll('issues');
+  issues.sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0));
+  if(!issues.length){ issueList.innerHTML='<div class="empty">NO SAVED ISSUES YET<br>Score a comic to create your first one.</div>'; return; }
+  issueList.innerHTML = '';
+  issues.forEach(issue=>{
+    const card = document.createElement('div');
+    card.className = 'issue-card' + (issue.id===currentIssueId?' current':'');
+    const main = document.createElement('div'); main.className='issue-main';
+    const nm = document.createElement('div'); nm.className='issue-name'; nm.textContent=issue.name||'Untitled Issue';
+    const meta = document.createElement('div'); meta.className='issue-meta';
+    const cues = Array.isArray(issue.sheet) ? issue.sheet.length : 0;
+    meta.textContent = cues+' cue'+(cues===1?'':'s')+' · '+new Date(issue.updatedAt||issue.createdAt||Date.now()).toLocaleDateString();
+    main.append(nm,meta);
+    const del = document.createElement('button'); del.className='ghost issue-delete'; del.textContent='Delete';
+    del.onclick = async e=>{
+      e.stopPropagation();
+      if(!confirm('Delete “'+(issue.name||'Untitled Issue')+'” and its saved audio?')) return;
+      await deleteIssueTracks(issue.id, Math.max(issue.sheet?.length||0,1));
+      await idbDelete('issues',issue.id);
+      if(currentIssueId===issue.id) beginNewScore();
+      await renderIssueList();
+    };
+    card.append(main,del);
+    card.onclick = ()=>loadIssue(issue.id);
+    issueList.appendChild(card);
+  });
+}
+async function loadIssue(id){
+  const issue = await idbGet('issues',id);
+  if(!issue || !Array.isArray(issue.sheet)) return;
+  currentIssue = issue; currentIssueId=id; currentIssueName=issue.name||'Untitled Issue'; issueName.value=currentIssueName;
+  render(issue.sheet,true,id,currentIssueName);
+  player.tracks=[]; player.idx=-1; player.useB=false; player.pendingPlay=false;
+  for(let i=0;i<issue.sheet.length;i++){
+    const rec = await idbGet('tracks',id+':'+i);
+    if(!rec || !rec.blob) continue;
+    const url=URL.createObjectURL(rec.blob);
+    const cards=results.querySelectorAll('.cue');
+    const wrap=cards[i]&&cards[i].querySelector('.audiowrap');
+    if(wrap) attachAudio(wrap,url,rec.blob,rec.name||('cue-'+(i+1)+'.mp3'));
+    const gen=cards[i]&&cards[i].querySelector('.gen'); if(gen) gen.textContent='Generate again';
+    registerTrack(issue.sheet[i],url);
+  }
+  await idbPut('meta','currentIssueId',id);
+  await renderIssueList();
+  if(player.tracks.length) setStatus('Loaded “'+currentIssueName+'”.'); else setStatus('Loaded “'+currentIssueName+'” — generate a cue to add audio.');
+  setTimeout(clearStatus,2200);
+}
 function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 /* ---- Sequential player: native HTML audio ----
@@ -1243,7 +1382,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-G';
+const BUILD = '2026-08-11-H';
 
 async function runDiag(){
   const out = [];
@@ -1416,23 +1555,19 @@ if('serviceWorker' in navigator){
 
 /* ---- Restore the last scored issue on launch ---- */
 (async function restore(){
-  const sheet = await idbGet('meta','sheet');
-  if(!sheet || !sheet.length) return;
-  render(sheet, true);
-  const cards = results.querySelectorAll('.cue');
-  for(let i=0;i<sheet.length;i++){
-    const rec = await idbGet('tracks', String(i));
-    if(!rec || !rec.blob) continue;
-    const url = URL.createObjectURL(rec.blob);
-    const wrap = cards[i] && cards[i].querySelector('.audiowrap');
-    if(wrap) attachAudio(wrap, url, rec.blob, rec.name || ('cue-'+(i+1)+'.mp3'));
-    const gen = cards[i] && cards[i].querySelector('.gen');
-    if(gen) gen.textContent = 'Generate again';
-    registerTrack(sheet[i], url);
+  const migrated = await migrateLegacyIssue();
+  let issue = migrated;
+  const currentId = await idbGet('meta','currentIssueId');
+  if(currentId) issue = await idbGet('issues',currentId) || issue;
+  if(!issue) {
+    await renderIssueList();
+    return;
   }
-  if(player.tracks.length) setStatus('Restored your last scored issue.');
-  setTimeout(clearStatus, 2600);
+  await loadIssue(issue.id);
+  if(player.tracks.length) setStatus('Restored “'+(issue.name||'Untitled Issue')+'”.');
+  setTimeout(clearStatus,2600);
 })();
 </script>
+
 </body>
 </html>

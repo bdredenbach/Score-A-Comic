@@ -9,6 +9,8 @@
 Score-A-Comic looks at the pages of an issue, works out where the scenes turn,
 and writes a music cue for each one — then generates the audio and plays it back.
 
+**2.0 adds a local issue library**, so you can keep multiple scored issues on the same device instead of replacing the previous score.
+
 <br>
 
 ### [**▶ Open the App**](https://bdredenbach.github.io/Score-A-Comic/)
@@ -68,10 +70,11 @@ into [Stable Audio](https://stableaudio.com) by hand.
 ## How to Use It
 
 1. **Add Pages** — Add up to 16 images from one issue, in reading order. Screenshots work, too.
-2. **Set the First Page Number** — This keeps the cue sheet's page ranges aligned with the book.
-3. **Score the Pages** — Claude analyzes the issue and creates the cue sheet.
-4. **Generate Music** — Generate the cues you want using Stability AI.
-5. **Read and Listen** — Hit play and tap `›` to advance, or use **ADVANCE** to move automatically through the cues.
+2. **Name the Issue** — Give the score a useful name such as `Avengers #1`.
+3. **Set the First Page Number** — This keeps the cue sheet's page ranges aligned with the book.
+4. **Score the Pages** — Claude analyzes the issue and creates the cue sheet.
+5. **Generate Music** — Generate the cues you want using Stability AI.
+6. **Read and Listen** — Hit play and tap `›` to advance, or use **ADVANCE** to move automatically through the cues.
 
 The player uses native browser audio, loops the current cue by default, and can
 automatically move to the next cue when the current one ends. Switch to
@@ -89,8 +92,10 @@ It's a PWA, so it installs to your home screen and runs without a browser bar.
 
 **iOS** — In Safari, choose **Share → Add to Home Screen**.
 
-Once installed, the app can work offline. Scored issues and their audio are stored
-on-device, so a scored issue stays scored between sessions.
+Once installed, the app can work offline. Scored issues and their generated audio are stored
+on-device, and 2.0 keeps multiple issues in a local library. Your API keys remain local to the browser/device.
+
+Use **New score** to start another issue. Tap any saved issue in the library to reopen it; deleting an issue also removes its saved audio.
 
 ### Android background playback
 
@@ -135,6 +140,8 @@ credit. The app reports the specific error rather than failing silently.
 **An update didn't appear** — The app caches itself to work offline. Use **Reset App
 Data** at the bottom of the installed app, or use the readiness panel in a browser tab.
 
+**My saved issue disappeared** — Do not use the browser's Clear site data command if you want to keep the local issue library and generated audio. The library is stored in IndexedDB on this device.
+
 **Install option missing** — Open the app in a browser tab and expand **Install
 Readiness**. It checks every requirement and identifies the one that's failing.
 
@@ -149,7 +156,7 @@ Readiness**. It checks every requirement and identifies the one that's failing.
 |---|---|
 | `index.html` | The whole app — UI, scoring, generation, playback |
 | `manifest.json` | Makes it installable |
-| `sw.js` | Offline caching |
+| `sw.js` | Offline caching and app-shell updates |
 | `scorer-icon-*.png` | App icons |
 
 No build step, no dependencies, no framework. Drop the folder on any static host
@@ -175,6 +182,6 @@ distribute any comic content.</sub>
 ---
 
 <div align="center">
-<sub>· Built with Claude AI · Built with Stability AI ·</sub>
+<sub>· Built with Claude AI · Built with Stability AI · 2.0 test build</sub>
 </div>
 </div>

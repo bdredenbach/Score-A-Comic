@@ -2,9 +2,9 @@
    Caches the app shell so it launches with no connection. API calls to
    Anthropic and Stability always go to the network — they're never cached.
 
-   v3: bump the cache name whenever the deployed app shell changes.
+   v4: bump the cache name whenever the deployed app shell changes.
    The page itself remains network-first so new versions are picked up promptly. */
-const CACHE = 'comic-scorer-v3';
+const CACHE = 'comic-scorer-v4';
 
 const SHELL = [
   './',

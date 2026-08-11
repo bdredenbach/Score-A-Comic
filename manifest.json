@@ -1,7 +1,7 @@
 {
   "name": "Comic Scorer",
   "short_name": "Scorer",
-  "description": "Score a comic issue into a music cue sheet, then generate the soundtrack.",
+  "description": "Score comic issues into music cue sheets, generate the soundtrack, and keep multiple scores on-device.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
