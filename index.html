@@ -262,6 +262,12 @@
   .pb-time{font-family:'Space Mono',monospace;font-size:9px;color:var(--paper-dim);text-align:center;}
   .pb-range{width:100%;margin:0;accent-color:var(--crimson);height:18px;cursor:pointer;}
   .pb-range:disabled{opacity:.35;cursor:not-allowed;}
+  .pb-error{
+    display:none;margin-top:5px;
+    font-family:'Space Mono',monospace;font-size:9px;line-height:1.4;
+    color:#e8697f;
+  }
+  .pb-error.on{display:block;}
   .pbtn{
     background:none;border:1px solid var(--line);color:var(--paper);
     width:38px;height:38px;border-radius:6px;cursor:pointer;
@@ -490,6 +496,7 @@
       <input class="pb-range" id="pbRange" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek within current cue" disabled>
       <span class="pb-time" id="pbDuration">0:00</span>
     </div>
+    <div class="pb-error" id="pbError" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -671,6 +678,64 @@ function setStatus(t, err){
 }
 function clearStatus(){ statusEl.className='status'; }
 
+
+function fetchWithTimeout(url, options={}, timeoutMs=120000){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), timeoutMs);
+  return fetch(url, {...options, signal:controller.signal})
+    .finally(()=>clearTimeout(timer))
+    .catch(err=>{
+      if(err && err.name==='AbortError'){
+        throw new Error('Request timed out after 2 minutes. Nothing was charged by Score-A-Comic. Check your connection and try again.');
+      }
+      throw err;
+    });
+}
+
+function validateCueSheet(parsed, pageCount, firstPage){
+  if(!parsed || !Array.isArray(parsed.movements)){
+    throw new Error('Claude returned an invalid cue sheet. Score the pages again.');
+  }
+  const movements = parsed.movements;
+  if(movements.length < 2 || movements.length > 4){
+    throw new Error('Claude returned '+movements.length+' cues. A score must contain 2–4 cues. Score the pages again.');
+  }
+
+  const expectedFirst = Number.isFinite(firstPage) ? firstPage : 1;
+  const expectedLast = expectedFirst + pageCount - 1;
+  let previousEnd = expectedFirst - 1;
+
+  movements.forEach((m, idx)=>{
+    if(!m || typeof m !== 'object') throw new Error('Cue '+(idx+1)+' is malformed. Score the pages again.');
+    if(typeof m.id !== 'string' || !m.id.trim()) throw new Error('Cue '+(idx+1)+' is missing an ID.');
+    if(typeof m.title !== 'string' || !m.title.trim()) throw new Error('Cue '+(idx+1)+' is missing a title.');
+    if(typeof m.setting !== 'string') throw new Error('Cue '+(idx+1)+' is missing its setting.');
+    if(typeof m.music_prompt !== 'string' || !m.music_prompt.trim()) throw new Error('Cue '+(idx+1)+' is missing its music prompt.');
+    if(!Array.isArray(m.avoid)) throw new Error('Cue '+(idx+1)+' has an invalid avoid list.');
+    if(!Number.isFinite(Number(m.intensity)) || Number(m.intensity) < 0 || Number(m.intensity) > 1){
+      throw new Error('Cue '+(idx+1)+' has an invalid intensity.');
+    }
+
+    const match = String(m.pages||'').trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if(!match) throw new Error('Cue '+(idx+1)+' has an invalid page range.');
+    const start = Number(match[1]), end = Number(match[2]);
+    if(start > end) throw new Error('Cue '+(idx+1)+' has a reversed page range.');
+    if(start < expectedFirst || end > expectedLast){
+      throw new Error('Cue '+(idx+1)+' points outside the uploaded pages.');
+    }
+    if(start !== previousEnd + 1){
+      throw new Error('Cue page ranges must be contiguous and non-overlapping. Cue '+(idx+1)+' starts on page '+start+'.');
+    }
+    previousEnd = end;
+  });
+
+  if(previousEnd !== expectedLast){
+    throw new Error('The cue sheet does not cover all uploaded pages.');
+  }
+
+  return movements;
+}
+
 scoreBtn.onclick = async ()=>{
   if(!pages.length) return;
   scoreBtn.disabled = true;
@@ -695,7 +760,7 @@ scoreBtn.onclick = async ()=>{
       headers["anthropic-dangerous-direct-browser-access"] = "true";
     }
 
-    const r = await fetch("https://api.anthropic.com/v1/messages",{
+    const r = await fetchWithTimeout("https://api.anthropic.com/v1/messages",{
       method:"POST",
       headers,
       body: JSON.stringify({
@@ -813,7 +878,7 @@ async function makeMusic(m, wrap, btn){
   fd.append('steps', '8');
 
   try{
-    const r = await fetch('https://api.stability.ai/v2beta/audio/stable-audio-2/text-to-audio',{
+    const r = await fetchWithTimeout('https://api.stability.ai/v2beta/audio/stable-audio-2/text-to-audio',{
       method:'POST',
       headers:{ 'Authorization':'Bearer '+mk, 'Accept':'audio/*' },
       body: fd
@@ -842,7 +907,7 @@ async function makeMusic(m, wrap, btn){
   }catch(err){
     const net = (err instanceof TypeError);
     wrap.innerHTML = `<div class="audio-note err">${esc(net
-      ? 'Could not reach Stability. If this works elsewhere, the request is likely being blocked by CORS — copy the prompt into stableaudio.com instead.'
+      ? 'Could not reach Stability. Check your internet connection and try again. If the problem persists, copy the prompt into stableaudio.com instead.'
       : (err.message||'Generation failed.'))}</div>`;
     btn.textContent = was;
   }
@@ -966,7 +1031,8 @@ function updateSession(){
       setSessionState();
       paintBar();
     }).catch(()=>{
-      player.pendingPlay = true;
+      player.pendingPlay = false;
+      player.error = 'Playback could not start. Try again or generate this cue again.';
       setSessionState();
       paintBar();
     });
@@ -1506,6 +1572,10 @@ function paintBar(){
   document.getElementById('pbTitle').textContent =
     t ? t.title : 'No track loaded';
 
+  const pbError = document.getElementById('pbError');
+  pbError.textContent = player.error || '';
+  pbError.classList.toggle('on', !!player.error);
+
   document.getElementById('pbPrev').disabled = player.idx<=0;
   document.getElementById('pbNext').disabled =
     player.idx>=player.tracks.length-1;
@@ -1577,7 +1647,9 @@ function wireAudioEvents(el){
 
   el.addEventListener('error', ()=>{
     if(el !== currentEl()) return;
+    stopPlaybackVisualLoop();
     player.pendingPlay = false;
+    player.error = 'Playback stopped — this audio file could not be played. Try generating the cue again.';
     setSessionState();
     paintBar();
   });
@@ -1588,6 +1660,7 @@ wireAudioEvents(player.b);
 function loadCue(i, autoplay){
   const t = player.tracks[i];
   if(!t) return;
+  player.error = '';
 
   const el = currentEl();
   el.src = t.url;
@@ -1601,8 +1674,9 @@ function loadCue(i, autoplay){
       holdScreen();
       setSessionState();
       paintBar();
-    }).catch(()=>{
-      player.pendingPlay = true;
+    }).catch(err=>{
+      player.pendingPlay = false;
+      player.error = 'Playback could not start. The saved audio may be unavailable — try generating this cue again.';
       setSessionState();
       paintBar();
     });
@@ -1616,6 +1690,7 @@ function loadCue(i, autoplay){
 function goTo(i, autoplay){
   if(i<0 || i>=player.tracks.length) return;
 
+  player.error = '';
   savePlaybackStateSoon();
   const from = currentEl();
   const to = idleEl();
@@ -1737,7 +1812,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I3.1';
+const BUILD = '2026-08-11-I4';
 
 async function runDiag(){
   const out = [];
