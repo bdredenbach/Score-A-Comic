@@ -742,47 +742,169 @@ async function makeMusic(m, wrap, btn){
   }
   btn.disabled = false;
 }
-/* ---- Background playback support ----
-   Android suspends a WebView when the app backgrounds, so true background
-   audio needs a native foreground service. From HTML the best we can do is:
-   (1) MediaSession — surfaces lockscreen/notification controls, and some
-       APK wrappers keep audio alive specifically when a session is active;
-   (2) Wake Lock — stops the screen sleeping, which is what kills playback
-       in the most common case. */
+/* ---- Background playback + queue support ----
+   The player uses two HTMLAudio elements so the next cue can be loaded before
+   the current cue ends. Media Session exposes the player to Android's lock
+   screen / notification controls.
+
+   Important limitation: a PWA cannot request Android's native foreground
+   audio service. This code therefore avoids relying on timers for advancing
+   tracks and keeps the next cue ready in the second audio element. */
 let wakeLock = null;
+
 async function holdScreen(){
+  // Wake Lock is only useful while the app is visible. It is NOT what keeps
+  // background audio alive, and Android releases it when the page is hidden.
+  if(document.visibilityState !== 'visible') return;
   try{
     if('wakeLock' in navigator && !wakeLock){
       wakeLock = await navigator.wakeLock.request('screen');
-      wakeLock.addEventListener('release', ()=>{ wakeLock = null; });
+      wakeLock.addEventListener('release', ()=>{ wakeLock = null; }, {once:true});
     }
   }catch(e){ /* unsupported or refused — not fatal */ }
 }
+
 function releaseScreen(){
-  try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
+  try{
+    if(wakeLock){ wakeLock.release(); wakeLock = null; }
+  }catch(e){}
 }
+
+function setSessionState(){
+  if(!('mediaSession' in navigator)) return;
+  try{
+    navigator.mediaSession.playbackState =
+      currentEl().paused ? 'paused' : 'playing';
+  }catch(e){}
+}
+
+function updatePositionState(){
+  if(!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+  const el = currentEl();
+  if(!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
+  const position = Math.max(0, Math.min(el.currentTime || 0, el.duration));
+  try{
+    navigator.mediaSession.setPositionState({
+      duration: el.duration,
+      playbackRate: el.playbackRate || 1,
+      position
+    });
+  }catch(e){}
+}
+
+function reconcilePlayback(){
+  const el = currentEl();
+  if(!el) return;
+
+  // If Android/browser suspended the page around the exact moment a cue ended,
+  // catch the missed transition as soon as the page becomes active again.
+  if(
+    player.mode === 'ADVANCE' &&
+    player.idx < player.tracks.length - 1 &&
+    (el.ended || (Number.isFinite(el.duration) && el.duration > 0 &&
+                  el.currentTime >= el.duration - 0.15))
+  ){
+    goTo(player.idx + 1, true);
+    return;
+  }
+
+  if(player.pendingPlay && el.paused && el.src){
+    wireAudioGraph();
+    resumeCtx();
+    el.play().then(()=>{
+      player.pendingPlay = false;
+      holdScreen();
+      setSessionState();
+      paintBar();
+    }).catch(()=>{});
+  }
+
+  if(!el.paused){
+    wireAudioGraph();
+    resumeCtx();
+    holdScreen();
+  }
+  setSessionState();
+  updatePositionState();
+  paintBar();
+}
+
 document.addEventListener('visibilitychange', ()=>{
-  // Re-acquire if we come back and audio is still going.
-  if(document.visibilityState==='visible' && !currentEl().paused) holdScreen();
+  if(document.visibilityState === 'visible'){
+    reconcilePlayback();
+  }else{
+    // Screen Wake Lock cannot keep a hidden PWA alive. Release it cleanly.
+    releaseScreen();
+  }
 });
+
+window.addEventListener('pageshow', reconcilePlayback);
 
 function updateSession(){
   if(!('mediaSession' in navigator)) return;
   const t = player.tracks[player.idx];
   if(!t) return;
+
   try{
     navigator.mediaSession.metadata = new MediaMetadata({
       title: t.title,
       artist: (t.id||'Cue') + ' · Comic Scorer',
       album: 'Spotting Session'
     });
-    navigator.mediaSession.playbackState = currentEl().paused ? 'paused' : 'playing';
-    navigator.mediaSession.setActionHandler('play', ()=>{ currentEl().play().catch(()=>{}); holdScreen(); setTimeout(paintBar,60); });
-    navigator.mediaSession.setActionHandler('pause', ()=>{ currentEl().pause(); releaseScreen(); setTimeout(paintBar,60); });
-    navigator.mediaSession.setActionHandler('nexttrack', ()=> goTo(player.idx+1, true));
-    navigator.mediaSession.setActionHandler('previoustrack', ()=> goTo(player.idx-1, true));
+    setSessionState();
+    updatePositionState();
   }catch(e){}
 }
+
+/* Register Media Session controls once. Re-registering them every time the
+   play bar repaints can create unnecessary work while the page is active. */
+(function wireMediaSession(){
+  if(!('mediaSession' in navigator)) return;
+
+  const safe = (name, fn)=>{
+    try{ navigator.mediaSession.setActionHandler(name, fn); }catch(e){}
+  };
+
+  safe('play', ()=>{
+    const el = currentEl();
+    if(!el.src) return;
+    wireAudioGraph();
+    resumeCtx();
+    el.play().then(()=>{
+      holdScreen();
+      setSessionState();
+      paintBar();
+    }).catch(()=>{});
+  });
+
+  safe('pause', ()=>{
+    currentEl().pause();
+    releaseScreen();
+    setSessionState();
+    paintBar();
+  });
+
+  safe('nexttrack', ()=>{
+    if(player.idx < player.tracks.length - 1) goTo(player.idx + 1, true);
+  });
+
+  safe('previoustrack', ()=>{
+    if(player.idx > 0) goTo(player.idx - 1, true);
+  });
+
+  safe('seekbackward', details=>{
+    const el = currentEl();
+    el.currentTime = Math.max(0, el.currentTime - (details.seekOffset || 10));
+    updatePositionState();
+  });
+
+  safe('seekforward', details=>{
+    const el = currentEl();
+    el.currentTime = Math.min(el.duration || Infinity,
+      el.currentTime + (details.seekOffset || 10));
+    updatePositionState();
+  });
+})();
 
 /* ---- Saving tracks ----
    Android WebView ignores <a download> and blob: URLs unless the APK wrapper
@@ -857,57 +979,148 @@ function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;',
 /* ---- Sequential player with crossfade ----
    Cue length never matches reading speed, so LOOP is the default:
    the current cue repeats until you advance. ADVANCE chains them
-   automatically when each track ends. */
+   automatically when each track ends. The next cue is preloaded into
+   the idle audio element as soon as the current cue is known. */
 const player = {
   tracks: [],        // {order, id, title, url}
   idx: -1,
   mode: 'LOOP',      // 'LOOP' | 'ADVANCE'
+  useB: false,
   a: new Audio(),
   b: new Audio(),
-  fading: false
+  fading: false,
+  pendingPlay: false
 };
+
 player.a.preload = 'auto';
 player.b.preload = 'auto';
+player.a.setAttribute('playsinline','');
+player.b.setAttribute('playsinline','');
 
 function currentEl(){ return player.useB ? player.b : player.a; }
 function idleEl(){ return player.useB ? player.a : player.b; }
 
+function preloadNext(){
+  const next = player.tracks[player.idx + 1];
+  const idle = idleEl();
+
+  if(!next){
+    idle.pause();
+    idle.removeAttribute('src');
+    try{ idle.load(); }catch(e){}
+    return;
+  }
+
+  // Do not disturb the element that is currently playing.
+  if(idle.src !== next.url){
+    idle.src = next.url;
+    idle.preload = 'auto';
+    idle.loop = false;
+    try{ idle.load(); }catch(e){}
+  }
+}
+
 function registerTrack(m, url){
   const order = movsOrder.indexOf(m);
-  const t = {order: order<0?player.tracks.length:order, id:m.id||'', title:m.title||'Untitled cue', url};
+  const t = {
+    order: order<0 ? player.tracks.length : order,
+    id: m.id||'',
+    title: m.title||'Untitled cue',
+    url
+  };
+
   const at = player.tracks.findIndex(x=>x.order===t.order);
-  if(at>=0) player.tracks[at]=t; else player.tracks.push(t);
+  if(at>=0) player.tracks[at]=t;
+  else player.tracks.push(t);
+
   player.tracks.sort((x,y)=>x.order-y.order);
   document.getElementById('playbar').classList.add('up');
-  if(player.idx<0){ player.idx = 0; loadCue(0, false); }
+
+  if(player.idx<0){
+    player.idx = 0;
+    loadCue(0, false);
+  }else{
+    preloadNext();
+  }
+
   paintBar();
 }
 
 function paintBar(){
   const t = player.tracks[player.idx];
-  document.getElementById('pbCue').textContent = t ? (t.id||('M'+(player.idx+1))) : '—';
-  document.getElementById('pbTitle').textContent = t ? t.title : 'No track loaded';
+  document.getElementById('pbCue').textContent =
+    t ? (t.id||('M'+(player.idx+1))) : '—';
+  document.getElementById('pbTitle').textContent =
+    t ? t.title : 'No track loaded';
   document.getElementById('pbPrev').disabled = player.idx<=0;
-  document.getElementById('pbNext').disabled = player.idx>=player.tracks.length-1;
+  document.getElementById('pbNext').disabled =
+    player.idx>=player.tracks.length-1;
   document.getElementById('pbMode').textContent = player.mode;
+
   const el = currentEl();
-  document.getElementById('pbPlay').textContent = (el && !el.paused) ? '❚❚' : '▶';
+  document.getElementById('pbPlay').textContent =
+    (el && !el.paused) ? '❚❚' : '▶';
+
   updateSession();
 }
 
 function wireEnded(el){
-  el.onended = ()=>{
-    if(player.mode==='ADVANCE' && player.idx < player.tracks.length-1) goTo(player.idx+1, true);
-    else paintBar();
-  };
+  el.addEventListener('ended', ()=>{
+    // Ignore an ended event from the other audio element after a crossfade.
+    if(el !== currentEl()) return;
+
+    if(player.mode==='ADVANCE' && player.idx < player.tracks.length-1){
+      goTo(player.idx+1, true);
+    }else{
+      setSessionState();
+      paintBar();
+    }
+  });
 }
-wireEnded(player.a); wireEnded(player.b);
+
+function wireAudioEvents(el){
+  wireEnded(el);
+
+  el.addEventListener('play', ()=>{
+    if(el !== currentEl()) return;
+    setSessionState();
+    updatePositionState();
+    paintBar();
+  });
+
+  el.addEventListener('pause', ()=>{
+    if(el !== currentEl()) return;
+    setSessionState();
+    paintBar();
+  });
+
+  el.addEventListener('timeupdate', ()=>{
+    if(el !== currentEl()) return;
+    updatePositionState();
+  });
+
+  el.addEventListener('loadedmetadata', ()=>{
+    if(el !== currentEl()) return;
+    updatePositionState();
+    paintBar();
+  });
+
+  el.addEventListener('error', ()=>{
+    if(el !== currentEl()) return;
+    setSessionState();
+    paintBar();
+  });
+}
+
+wireAudioEvents(player.a);
+wireAudioEvents(player.b);
 
 /* Crossfading via setInterval breaks in the background — Chrome throttles
    timers, so the incoming track would start at volume 0 and never rise.
    Routing through Web Audio puts the fade on the audio thread, where
    throttling doesn't reach it. Falls back to timers if unavailable. */
 const wa = { ctx:null, gA:null, gB:null, ready:false, tried:false };
+
 function wireAudioGraph(){
   if(wa.ready) return true;
   if(wa.tried) return false;
@@ -915,119 +1128,227 @@ function wireAudioGraph(){
   try{
     const AC = window.AudioContext || window.webkitAudioContext;
     if(!AC) return false;
+
     wa.ctx = new AC();
     const sA = wa.ctx.createMediaElementSource(player.a);
     const sB = wa.ctx.createMediaElementSource(player.b);
     wa.gA = wa.ctx.createGain();
     wa.gB = wa.ctx.createGain();
+
     sA.connect(wa.gA).connect(wa.ctx.destination);
     sB.connect(wa.gB).connect(wa.ctx.destination);
+
     wa.gA.gain.value = 1;
     wa.gB.gain.value = 1;
     wa.ready = true;
     return true;
-  }catch(e){ return false; }
+  }catch(e){
+    return false;
+  }
 }
+
 function resumeCtx(){
-  try{ if(wa.ctx && wa.ctx.state === 'suspended') wa.ctx.resume(); }catch(e){}
+  try{
+    if(wa.ctx && wa.ctx.state === 'suspended') wa.ctx.resume();
+  }catch(e){}
 }
+
 function gainFor(el){ return el === player.a ? wa.gA : wa.gB; }
 
 function loadCue(i, autoplay){
-  const t = player.tracks[i]; if(!t) return;
+  const t = player.tracks[i];
+  if(!t) return;
+
   const el = currentEl();
   el.src = t.url;
+  el.preload = 'auto';
   el.loop = (player.mode==='LOOP');
   el.volume = 1;
-  if(wa.ready){ try{ gainFor(el).gain.value = 1; }catch(e){} }
-  if(autoplay){ wireAudioGraph(); resumeCtx(); el.play().catch(()=>{}); }
+
+  if(wa.ready){
+    try{ gainFor(el).gain.value = 1; }catch(e){}
+  }
+
+  if(autoplay){
+    wireAudioGraph();
+    resumeCtx();
+    el.play().then(()=>{
+      player.pendingPlay = false;
+      holdScreen();
+      setSessionState();
+      paintBar();
+    }).catch(()=>{
+      player.pendingPlay = true;
+      setSessionState();
+      paintBar();
+    });
+  }
+
+  preloadNext();
   paintBar();
 }
 
 // Crossfade so cue changes don't jar mid-read.
 function goTo(i, autoplay){
   if(i<0 || i>=player.tracks.length || player.fading) return;
+
   const from = currentEl();
   const to = idleEl();
-  to.src = player.tracks[i].url;
+  const target = player.tracks[i];
+
+  // The idle element is normally already preloaded. Setting the same URL again
+  // is harmless, and setting a new one handles manual previous/next correctly.
+  if(to.src !== target.url){
+    to.src = target.url;
+    to.preload = 'auto';
+  }
   to.loop = (player.mode==='LOOP');
+
   player.idx = i;
 
   const wasPlaying = autoplay || !from.paused;
-  if(!wasPlaying){ player.useB = !player.useB; loadCue(i,false); return; }
+  if(!wasPlaying){
+    player.useB = !player.useB;
+    loadCue(i,false);
+    return;
+  }
 
   wireAudioGraph();
   resumeCtx();
   const FADE = 1.2; // seconds
 
   if(wa.ready){
-    // Audio-thread fade: keeps working while the app is in the background.
-    to.volume = 1; from.volume = 1;
-    const gTo = gainFor(to), gFrom = gainFor(from);
+    // Audio-thread fade: keeps the fade itself independent of JS timers.
+    to.volume = 1;
+    from.volume = 1;
+
+    const gTo = gainFor(to);
+    const gFrom = gainFor(from);
     const t0 = wa.ctx.currentTime;
+
     try{
       gTo.gain.cancelScheduledValues(t0);
       gTo.gain.setValueAtTime(0, t0);
       gTo.gain.linearRampToValueAtTime(1, t0 + FADE);
+
       gFrom.gain.cancelScheduledValues(t0);
       gFrom.gain.setValueAtTime(gFrom.gain.value, t0);
       gFrom.gain.linearRampToValueAtTime(0, t0 + FADE);
     }catch(e){}
-    to.play().catch(()=>{});
+
+    to.play().then(()=>{
+      player.pendingPlay = false;
+      holdScreen();
+      setSessionState();
+    }).catch(()=>{
+      // If Android blocks the transition while hidden, visibility reconciliation
+      // will retry it when the page becomes active again.
+      player.pendingPlay = true;
+      setSessionState();
+    });
+
     player.useB = !player.useB;
-    // Stopping the old element is housekeeping — safe to be late.
-    setTimeout(()=>{ try{ from.pause(); gFrom.gain.value = 1; }catch(e){} }, FADE*1000 + 250);
+
+    // Housekeeping only. The actual fade is already scheduled on the audio thread.
+    setTimeout(()=>{
+      try{
+        from.pause();
+        gainFor(from).gain.value = 1;
+      }catch(e){}
+    }, FADE*1000 + 250);
+
+    preloadNext();
     paintBar();
     return;
   }
 
-  // No Web Audio: hard-switch when hidden (a timer ramp would leave it silent),
-  // ramp normally when the app is on screen.
+  // No Web Audio: never use a background timer to ramp volume.
   if(document.hidden){
     to.volume = 1;
-    to.play().catch(()=>{});
-    from.pause(); from.volume = 1;
+    to.play().then(()=>{ player.pendingPlay = false; }).catch(()=>{
+      player.pendingPlay = true;
+    });
+    from.pause();
+    from.volume = 1;
     player.useB = !player.useB;
+    preloadNext();
     paintBar();
     return;
   }
+
   to.volume = 0;
   player.fading = true;
-  to.play().catch(()=>{});
+  to.play().catch(()=>{ player.pendingPlay = true; });
+
   const dur = FADE*1000, step = 60, ticks = dur/step;
   let n = 0;
+
   const iv = setInterval(()=>{
     n++;
     const p = n/ticks;
-    to.volume = Math.min(1, p);
-    from.volume = Math.max(0, 1-p);
+    to.volume = Math.min(1,p);
+    from.volume = Math.max(0,1-p);
+
     if(n>=ticks){
       clearInterval(iv);
-      from.pause(); from.volume = 1;
+      from.pause();
+      from.volume = 1;
       player.useB = !player.useB;
       player.fading = false;
+      preloadNext();
       paintBar();
     }
-  }, step);
+  },step);
+
   paintBar();
 }
 
 document.getElementById('pbPlay').onclick = ()=>{
   const el = currentEl();
   if(!el.src) return;
+
   if(el.paused){
-    wireAudioGraph(); resumeCtx();
-    el.play().catch(()=>{}); holdScreen();
+    wireAudioGraph();
+    resumeCtx();
+
+    el.play().then(()=>{
+      player.pendingPlay = false;
+      holdScreen();
+      setSessionState();
+      paintBar();
+    }).catch(()=>{
+      player.pendingPlay = true;
+      paintBar();
+    });
+  }else{
+    el.pause();
+    player.pendingPlay = false;
+    releaseScreen();
   }
-  else { el.pause(); releaseScreen(); }
-  setTimeout(paintBar, 60);
+
+  setTimeout(paintBar,60);
 };
-document.getElementById('pbNext').onclick = ()=> goTo(player.idx+1, true);
-document.getElementById('pbPrev').onclick = ()=> goTo(player.idx-1, true);
+
+document.getElementById('pbNext').onclick =
+  ()=> goTo(player.idx+1,true);
+
+document.getElementById('pbPrev').onclick =
+  ()=> goTo(player.idx-1,true);
+
 document.getElementById('pbMode').onclick = ()=>{
   player.mode = (player.mode==='LOOP') ? 'ADVANCE' : 'LOOP';
-  const el = currentEl();
-  el.loop = (player.mode==='LOOP');
+  currentEl().loop = (player.mode==='LOOP');
+
+  // In ADVANCE mode the next cue should already be sitting in the idle
+  // element. In LOOP mode it is cleared so it cannot play accidentally.
+  if(player.mode==='ADVANCE') preloadNext();
+  else{
+    const idle = idleEl();
+    idle.pause();
+    idle.removeAttribute('src');
+    try{ idle.load(); }catch(e){}
+  }
+
   paintBar();
 };
 
@@ -1053,7 +1374,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-10-E';
+const BUILD = '2026-08-11-F';
 
 async function runDiag(){
   const out = [];

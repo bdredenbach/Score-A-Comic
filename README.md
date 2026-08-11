@@ -22,8 +22,6 @@ and writes a music cue for each one — then generates the audio and plays it ba
 ![Works offline](https://img.shields.io/badge/works-offline-3e5c76?style=flat-square)
 ![Bring your own keys](https://img.shields.io/badge/keys-your_own-3e5c76?style=flat-square)
 
-
-
 ---
 
 ## What It Does
@@ -88,8 +86,9 @@ It's a PWA, so it installs to your home screen and runs without a browser bar.
 
 **iOS** — In Safari, choose **Share → Add to Home Screen**.
 
-Once installed, the app can work offline. Scored issues and their audio are stored
-on-device, so a scored issue stays scored between sessions.
+Once installed, the app shell, scored issues, and previously generated audio can remain
+available offline. Creating new scores or generating new music requires an internet
+connection.
 
 ---
 
