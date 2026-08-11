@@ -329,6 +329,8 @@
   .section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
   .section-title{font-family:'Space Mono',monospace;font-size:11px;color:var(--paper-dim);letter-spacing:.08em;}
   .issue-list{display:grid;gap:8px;}
+  #libraryPanel.library-collapsed .issue-list{display:none;}
+  #libraryPanel.library-collapsed{padding-bottom:10px;}
   .issue-card{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:var(--ink);cursor:pointer;}
   .issue-card:hover{border-color:var(--gold);}
   .issue-card.current{border-color:var(--crimson);box-shadow:inset 3px 0 0 var(--crimson);}
@@ -378,7 +380,10 @@
   <div class="panel" id="libraryPanel">
     <div class="section-head">
       <span class="section-title">SCORED ISSUES</span>
-      <button class="ghost" id="newIssue">New score</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="ghost" id="libraryToggle" aria-expanded="true">Hide</button>
+        <button class="ghost" id="newIssue">New score</button>
+      </div>
     </div>
     <div class="issue-list" id="issueList">
       <div class="empty">NO SAVED ISSUES YET</div>
@@ -511,6 +516,19 @@ const startPg = document.getElementById('startpg');
 const issueName = document.getElementById('issueName');
 const issueList = document.getElementById('issueList');
 const newIssueBtn = document.getElementById('newIssue');
+const libraryPanel = document.getElementById('libraryPanel');
+const libraryToggle = document.getElementById('libraryToggle');
+
+function setLibraryCollapsed(collapsed){
+  if(!libraryPanel || !libraryToggle) return;
+  libraryPanel.classList.toggle('library-collapsed', !!collapsed);
+  libraryToggle.textContent = collapsed ? 'Show' : 'Hide';
+  libraryToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+}
+libraryToggle?.addEventListener('click', e=>{
+  e.stopPropagation();
+  setLibraryCollapsed(!libraryPanel.classList.contains('library-collapsed'));
+});
 
 let pages = []; // {dataUrl, b64, media}
 
@@ -572,6 +590,7 @@ function stopPlayer(){
 }
 
 function beginNewScore(){
+  setLibraryCollapsed(true);
   currentIssueId = null; currentIssueName = ''; currentIssue = null;
   issueName.value = '';
   pages = []; renderThumbs();
@@ -1174,6 +1193,7 @@ function startIssueRename(card, main, issue){
 }
 
 async function loadIssue(id){
+  setLibraryCollapsed(true);
   const issue = await idbGet('issues',id);
   if(!issue || !Array.isArray(issue.sheet)) return;
   currentIssue = issue; currentIssueId=id; currentIssueName=issue.name||'Untitled Issue'; issueName.value=currentIssueName;
@@ -1205,7 +1225,7 @@ function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;',
 const player = {
   tracks: [],        // {order, id, title, url}
   idx: -1,
-  mode: 'LOOP',      // 'LOOP' | 'ADVANCE'
+  mode: 'ADVANCE',   // 'LOOP' | 'ADVANCE' — default follows cues automatically
   useB: false,
   a: new Audio(),
   b: new Audio(),
@@ -1472,7 +1492,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I';
+const BUILD = '2026-08-11-I1';
 
 async function runDiag(){
   const out = [];
@@ -1650,6 +1670,7 @@ if('serviceWorker' in navigator){
   const currentId = await idbGet('meta','currentIssueId');
   if(currentId) issue = await idbGet('issues',currentId) || issue;
   if(!issue) {
+    setLibraryCollapsed(false);
     await renderIssueList();
     return;
   }
