@@ -966,6 +966,18 @@ function reconcilePlayback(){
   if(
     player.mode === 'ADVANCE' &&
     player.idx < player.tracks.length - 1 &&
+    !player.crossfadeActive &&
+    Number.isFinite(el.duration) && el.duration > 0 &&
+    el.currentTime >= el.duration - CROSSFADE_SECONDS &&
+    !el.ended
+  ){
+    beginCrossfade();
+    return;
+  }
+
+  if(
+    player.mode === 'ADVANCE' &&
+    player.idx < player.tracks.length - 1 &&
     (el.ended || (Number.isFinite(el.duration) && el.duration > 0 &&
                   el.currentTime >= el.duration - 0.15))
   ){
@@ -1437,7 +1449,10 @@ const player = {
   useB: false,
   a: new Audio(),
   b: new Audio(),
-  pendingPlay: false
+  pendingPlay: false,
+  crossfadeActive: false,
+  crossfadeTimer: 0,
+  crossfadeInterval: 0
 };
 player.a.preload = 'auto';
 player.b.preload = 'auto';
@@ -1637,6 +1652,16 @@ function wireAudioEvents(el){
     if(el !== currentEl()) return;
     updatePositionState();
     schedulePlaybackSave();
+
+    if(player.mode === 'ADVANCE' &&
+       player.idx < player.tracks.length - 1 &&
+       !player.crossfadeActive &&
+       Number.isFinite(el.duration) && el.duration > 0){
+      const remaining = el.duration - el.currentTime;
+      if(remaining <= CROSSFADE_SECONDS){
+        beginCrossfade();
+      }
+    }
   });
 
   el.addEventListener('loadedmetadata', ()=>{
@@ -1657,9 +1682,115 @@ function wireAudioEvents(el){
 wireAudioEvents(player.a);
 wireAudioEvents(player.b);
 
+
+const CROSSFADE_SECONDS = 1.8;
+const CROSSFADE_TICK_MS = 40;
+
+function cancelCrossfade(){
+  if(player.crossfadeTimer){
+    clearTimeout(player.crossfadeTimer);
+    player.crossfadeTimer = 0;
+  }
+  if(player.crossfadeInterval){
+    clearInterval(player.crossfadeInterval);
+    player.crossfadeInterval = 0;
+  }
+  player.crossfadeActive = false;
+}
+
+function beginCrossfade(){
+  if(player.crossfadeActive || player.mode !== 'ADVANCE') return;
+  if(player.idx < 0 || player.idx >= player.tracks.length - 1) return;
+
+  const from = currentEl();
+  const to = idleEl();
+  const fromIndex = player.idx;
+  const nextIndex = fromIndex + 1;
+  const target = player.tracks[nextIndex];
+
+  if(!from || !to || !target || from.paused) return;
+
+  player.crossfadeActive = true;
+  player.pendingPlay = false;
+  player.error = '';
+
+  if(to.src !== target.url){
+    try{ to.pause(); }catch(e){}
+    to.src = target.url;
+    to.preload = 'auto';
+    to.loop = false;
+    try{ to.load(); }catch(e){}
+  }
+
+  to.loop = false;
+  to.volume = 0;
+
+  player.idx = nextIndex;
+  player.useB = !player.useB;
+
+  const switched = currentEl();
+  const old = from;
+  const fadeMs = CROSSFADE_SECONDS * 1000;
+  const startedAt = performance.now();
+
+  const finish = ()=>{
+    if(player.crossfadeInterval){
+      clearInterval(player.crossfadeInterval);
+      player.crossfadeInterval = 0;
+    }
+    player.crossfadeActive = false;
+    player.crossfadeTimer = 0;
+    try{ old.pause(); }catch(e){}
+    old.volume = 1;
+    switched.volume = 1;
+    preloadNext();
+    schedulePlaybackSave();
+    updateSession();
+    updatePositionState();
+    paintBar();
+  };
+
+  const fail = ()=>{
+    if(player.crossfadeInterval){
+      clearInterval(player.crossfadeInterval);
+      player.crossfadeInterval = 0;
+    }
+    player.crossfadeActive = false;
+    player.crossfadeTimer = 0;
+    try{ switched.pause(); }catch(e){}
+    switched.volume = 1;
+    player.idx = fromIndex;
+    player.useB = !player.useB;
+    old.volume = 1;
+    player.error = 'Crossfade could not start the next cue. Continuing with the current cue.';
+    setSessionState();
+    paintBar();
+  };
+
+  const fade = ()=>{
+    const elapsed = performance.now() - startedAt;
+    const p = Math.max(0, Math.min(1, elapsed / fadeMs));
+    old.volume = Math.max(0, 1 - p);
+    switched.volume = Math.min(1, p);
+    if(p >= 1) finish();
+  };
+
+  switched.play().then(()=>{
+    startPlaybackVisualLoop();
+    updateSession();
+    updatePositionState();
+    paintBar();
+    player.crossfadeInterval = setInterval(fade, CROSSFADE_TICK_MS);
+    fade();
+  }).catch(()=>{
+    fail();
+  });
+}
+
 function loadCue(i, autoplay){
   const t = player.tracks[i];
   if(!t) return;
+  cancelCrossfade();
   player.error = '';
 
   const el = currentEl();
@@ -1685,11 +1816,12 @@ function loadCue(i, autoplay){
   paintBar();
 }
 
-/* Switch to the already-preloaded next/previous cue.
-   There is intentionally no crossfade in this test build. */
+/* Switch to the already-preloaded next/previous cue. Crossfade is handled
+   separately for automatic ADVANCE transitions; manual navigation stays instant. */
 function goTo(i, autoplay){
   if(i<0 || i>=player.tracks.length) return;
 
+  cancelCrossfade();
   player.error = '';
   savePlaybackStateSoon();
   const from = currentEl();
@@ -1777,6 +1909,7 @@ document.getElementById('pbNext').onclick =
 document.getElementById('pbPrev').onclick =
   ()=> goTo(player.idx-1,true);
 document.getElementById('pbMode').onclick = ()=>{
+  cancelCrossfade();
   player.mode = (player.mode==='LOOP') ? 'ADVANCE' : 'LOOP';
   savePlaybackStateSoon();
 
@@ -1812,7 +1945,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I4';
+const BUILD = '2026-08-11-I4.1';
 
 async function runDiag(){
   const out = [];
