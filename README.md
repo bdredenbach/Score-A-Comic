@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="banner.png" alt="Comic Scorer" width="100%">
+<img src="banner.png" alt="Score-A-Comic" width="100%">
 
 <br>
 
 **Read a comic. Get a soundtrack written for it.**
 
-Comic Scorer looks at the pages of an issue, works out where the scenes turn,
+Score-A-Comic looks at the pages of an issue, works out where the scenes turn,
 and writes a music cue for each one — then generates the audio and plays it back.
 
 <br>
@@ -57,8 +57,11 @@ device and persist between visits.
 > track is priced per generation by Stability. Set a spend limit on both keys —
 > both consoles support it. Check each provider's current pricing before you start.
 
-You can also skip the Stability key entirely and use **Copy prompt** to paste cues
+There is a manual option —
+You can skip the Stability key entirely and use **Copy prompt** to paste cues
 into [stableaudio.com](https://stableaudio.com) by hand.
+
+You can save each track and play in your own playlist.
 
 ---
 
@@ -89,15 +92,13 @@ so a scored issue stays scored between sessions — no regenerating, no re-spend
 
 ---
 
-## Your keys stay yours
+## Your keys stay on your device
 
-Nothing in this repository contains a key, which is why it can be public.
+Nothing in this repository contains an API key, which is why the project can be public.
 
-Both keys live in your browser's local storage on your own device. They go to
-Anthropic and Stability directly and nowhere else. There's no server here to send
-them to — the whole app is one HTML file.
+Your Anthropic and Stability AI keys are stored in your browser's local storage on your own device. API requests are sent directly from your browser to the respective service — this app does not have a backend or server that receives your keys.
 
-If you fork this, the same holds: whoever runs your copy brings their own keys.
+If you fork this project, the same applies: whoever runs the app provides their own API keys.
 
 ---
 
