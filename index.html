@@ -337,7 +337,8 @@
   .issue-main{flex:1;min-width:0;}
   .issue-name{font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .issue-meta{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--paper-dim);margin-top:3px;}
-  .issue-delete,.issue-rename{flex:0 0 auto;}
+  .issue-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+  .issue-resume{border-color:var(--gold);color:var(--gold);}
   .issue-rename-input{
     width:100%;min-width:0;background:var(--ink-2);border:1px solid var(--gold);
     color:var(--paper);border-radius:5px;padding:6px 8px;
@@ -590,6 +591,7 @@ function stopPlayer(){
 }
 
 function beginNewScore(){
+  savePlaybackStateSoon();
   setLibraryCollapsed(true);
   currentIssueId = null; currentIssueName = ''; currentIssue = null;
   issueName.value = '';
@@ -1062,8 +1064,63 @@ async function saveIssue(issue, clearOldTracks){
   const existing = await idbGet('issues', issue.id);
   if(existing){ issue.createdAt = existing.createdAt || issue.createdAt; }
   await idbPut('issues', issue.id, issue);
+  if(issue.id===currentIssueId) currentIssue = issue;
   await idbPut('meta','currentIssueId', issue.id);
   if(clearOldTracks && existing) await deleteIssueTracks(issue.id, Math.max(existing.sheet?.length||0, issue.sheet?.length||0));
+}
+
+let playbackSaveTimer = null;
+function playbackSnapshot(){
+  if(!currentIssueId || !player || player.idx<0 || !player.tracks[player.idx]) return null;
+  const el = currentEl();
+  const time = Number.isFinite(el.currentTime) ? el.currentTime : 0;
+  return {
+    cueIndex: player.idx,
+    currentTime: Math.max(0,time),
+    mode: player.mode,
+    savedAt: Date.now()
+  };
+}
+async function savePlaybackState(){
+  const snap = playbackSnapshot();
+  if(!snap || !currentIssueId) return;
+  if(currentIssue) currentIssue.playback = snap;
+  await idbPut('issues', currentIssueId, currentIssue || {id:currentIssueId, playback:snap});
+}
+function schedulePlaybackSave(){
+  if(playbackSaveTimer) return;
+  playbackSaveTimer = setTimeout(()=>{
+    playbackSaveTimer = null;
+    savePlaybackState();
+  },900);
+}
+function savePlaybackStateSoon(){
+  savePlaybackState();
+  schedulePlaybackSave();
+}
+async function restorePlaybackPosition(issue){
+  const p = getPlayback(issue);
+  if(!p || !player.tracks.length) return;
+  const target = Math.min(player.tracks.length-1, Math.max(0, Number(p.cueIndex)||0));
+  player.idx = target;
+  player.mode = p.mode === 'LOOP' ? 'LOOP' : 'ADVANCE';
+  loadCue(target, false);
+  const el = currentEl();
+  const time = Math.max(0, Number(p.currentTime)||0);
+
+  await new Promise(resolve=>{
+    let done=false;
+    const finish=()=>{ if(done) return; done=true; el.removeEventListener('loadedmetadata',finish); resolve(); };
+    el.addEventListener('loadedmetadata',finish);
+    if(el.readyState >= 1) finish();
+    setTimeout(finish,800);
+  });
+  if(Number.isFinite(el.duration) && el.duration>0){
+    el.currentTime = Math.min(time, Math.max(0, el.duration-0.05));
+  }else{
+    el.currentTime = time;
+  }
+  paintBar();
 }
 async function migrateLegacyIssue(){
   const issues = await idbGetAll('issues');
@@ -1080,21 +1137,67 @@ async function migrateLegacyIssue(){
   await idbPut('meta','currentIssueId',id);
   return legacy;
 }
+function formatPlaybackTime(seconds){
+  const n = Math.max(0, Math.floor(Number(seconds)||0));
+  const m = Math.floor(n/60);
+  const sec = n % 60;
+  return m+':'+String(sec).padStart(2,'0');
+}
+function getPlayback(issue){
+  const p = issue && issue.playback;
+  if(!p || !Number.isFinite(Number(p.cueIndex))) return null;
+  return p;
+}
+function playbackLabel(issue){
+  const p = getPlayback(issue);
+  const cues = Array.isArray(issue?.sheet) ? issue.sheet.length : 0;
+  if(!p || !cues) return '';
+  const cue = Math.min(cues, Math.max(1, Number(p.cueIndex)+1));
+  return 'Continue · Cue '+cue+' of '+cues+' · '+formatPlaybackTime(p.currentTime);
+}
 async function renderIssueList(){
   if(!issueList) return;
   let issues = await idbGetAll('issues');
   issues.sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0));
-  if(!issues.length){ issueList.innerHTML='<div class="empty">NO SAVED ISSUES YET<br>Score a comic to create your first one.</div>'; return; }
+  if(!issues.length){
+    issueList.innerHTML='<div class="empty">NO SAVED ISSUES YET<br>Score a comic to create your first one.</div>';
+    return;
+  }
   issueList.innerHTML = '';
   issues.forEach(issue=>{
     const card = document.createElement('div');
     card.className = 'issue-card' + (issue.id===currentIssueId?' current':'');
+
     const main = document.createElement('div'); main.className='issue-main';
     const nm = document.createElement('div'); nm.className='issue-name'; nm.textContent=issue.name||'Untitled Issue';
     const meta = document.createElement('div'); meta.className='issue-meta';
     const cues = Array.isArray(issue.sheet) ? issue.sheet.length : 0;
     meta.textContent = cues+' cue'+(cues===1?'':'s')+' · '+new Date(issue.updatedAt||issue.createdAt||Date.now()).toLocaleDateString();
     main.append(nm,meta);
+
+    const progress = playbackLabel(issue);
+    if(progress){
+      const cont = document.createElement('div');
+      cont.className='issue-meta issue-progress';
+      cont.textContent=progress;
+      main.appendChild(cont);
+    }
+
+    const actions = document.createElement('div');
+    actions.className='issue-actions';
+
+    if(progress){
+      const resume = document.createElement('button');
+      resume.className='ghost issue-resume';
+      resume.textContent='Resume';
+      resume.setAttribute('aria-label','Resume '+(issue.name||'Untitled Issue'));
+      resume.onclick = async e=>{
+        e.stopPropagation();
+        await loadIssue(issue.id, true);
+      };
+      actions.appendChild(resume);
+    }
+
     const rename = document.createElement('button');
     rename.className='ghost issue-rename';
     rename.textContent='Rename';
@@ -1104,7 +1207,9 @@ async function renderIssueList(){
       startIssueRename(card, main, issue);
     };
 
-    const del = document.createElement('button'); del.className='ghost issue-delete'; del.textContent='Delete';
+    const del = document.createElement('button');
+    del.className='ghost issue-delete';
+    del.textContent='Delete';
     del.onclick = async e=>{
       e.stopPropagation();
       if(!confirm('Delete “'+(issue.name||'Untitled Issue')+'” and its saved audio?')) return;
@@ -1113,7 +1218,9 @@ async function renderIssueList(){
       if(currentIssueId===issue.id) beginNewScore();
       await renderIssueList();
     };
-    card.append(main,rename,del);
+
+    actions.append(rename,del);
+    card.append(main,actions);
     card.onclick = ()=>loadIssue(issue.id);
     issueList.appendChild(card);
   });
@@ -1192,13 +1299,15 @@ function startIssueRename(card, main, issue){
   input.select();
 }
 
-async function loadIssue(id){
+async function loadIssue(id, resumeNow=false){
   setLibraryCollapsed(true);
+  await savePlaybackState();
   const issue = await idbGet('issues',id);
   if(!issue || !Array.isArray(issue.sheet)) return;
   currentIssue = issue; currentIssueId=id; currentIssueName=issue.name||'Untitled Issue'; issueName.value=currentIssueName;
   render(issue.sheet,true,id,currentIssueName);
   player.tracks=[]; player.idx=-1; player.useB=false; player.pendingPlay=false;
+  player.mode = issue.playback?.mode === 'LOOP' ? 'LOOP' : 'ADVANCE';
   for(let i=0;i<issue.sheet.length;i++){
     const rec = await idbGet('tracks',id+':'+i);
     if(!rec || !rec.blob) continue;
@@ -1209,9 +1318,29 @@ async function loadIssue(id){
     const gen=cards[i]&&cards[i].querySelector('.gen'); if(gen) gen.textContent='Generate again';
     registerTrack(issue.sheet[i],url);
   }
+  if(player.tracks.length){
+    await restorePlaybackPosition(issue);
+    if(resumeNow){
+      const el=currentEl();
+      el.play().then(()=>{
+        player.pendingPlay=false;
+        holdScreen();
+        setSessionState();
+        paintBar();
+      }).catch(()=>{
+        player.pendingPlay=true;
+        setSessionState();
+        paintBar();
+      });
+    }
+  }
   await idbPut('meta','currentIssueId',id);
   await renderIssueList();
-  if(player.tracks.length) setStatus('Loaded “'+currentIssueName+'”.'); else setStatus('Loaded “'+currentIssueName+'” — generate a cue to add audio.');
+  if(player.tracks.length){
+    setStatus(resumeNow ? 'Resumed “'+currentIssueName+'”.' : 'Loaded “'+currentIssueName+'”.');
+  }else{
+    setStatus('Loaded “'+currentIssueName+'” — generate a cue to add audio.');
+  }
   setTimeout(clearStatus,2200);
 }
 function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -1318,6 +1447,7 @@ function wireAudioEvents(el){
       goTo(player.idx + 1, true);
     }else{
       player.pendingPlay = false;
+      savePlaybackStateSoon();
       setSessionState();
       paintBar();
     }
@@ -1332,6 +1462,7 @@ function wireAudioEvents(el){
   });
   el.addEventListener('pause', ()=>{
     if(el !== currentEl()) return;
+    savePlaybackStateSoon();
     setSessionState();
     paintBar();
   });
@@ -1339,6 +1470,7 @@ function wireAudioEvents(el){
   el.addEventListener('timeupdate', ()=>{
     if(el !== currentEl()) return;
     updatePositionState();
+    schedulePlaybackSave();
   });
 
   el.addEventListener('loadedmetadata', ()=>{
@@ -1388,6 +1520,7 @@ function loadCue(i, autoplay){
 function goTo(i, autoplay){
   if(i<0 || i>=player.tracks.length) return;
 
+  savePlaybackStateSoon();
   const from = currentEl();
   const to = idleEl();
   const target = player.tracks[i];
@@ -1459,6 +1592,7 @@ document.getElementById('pbPrev').onclick =
   ()=> goTo(player.idx-1,true);
 document.getElementById('pbMode').onclick = ()=>{
   player.mode = (player.mode==='LOOP') ? 'ADVANCE' : 'LOOP';
+  savePlaybackStateSoon();
 
   currentEl().loop = (player.mode==='LOOP');
 
@@ -1492,7 +1626,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I1';
+const BUILD = '2026-08-11-I2';
 
 async function runDiag(){
   const out = [];
@@ -1662,6 +1796,15 @@ if('serviceWorker' in navigator){
     });
   });
 }
+
+window.addEventListener('pagehide', ()=>{
+  try{ savePlaybackState(); }catch(e){}
+});
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden'){
+    try{ savePlaybackState(); }catch(e){}
+  }
+});
 
 /* ---- Restore the last scored issue on launch ---- */
 (async function restore(){
