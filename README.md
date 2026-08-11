@@ -43,15 +43,16 @@ The built-in player loops the current cue by default, since a 95-second track ne
 ## What you'll need
 
 This app has no backend and no account. It talks directly to Anthropic and
-Stability AI using **your** API keys, which are stored on your device.
+Stability AI using **your** API keys, which are stored in your browser's local
+storage on your device.
 
 | Key | What it does | Where to get it |
 |---|---|---|
 | **Anthropic** | Reads the pages, writes the cue sheet | [console.anthropic.com](https://console.anthropic.com) |
 | **Stability AI** | Turns each cue into audio | [platform.stability.ai](https://platform.stability.ai) |
 
-Paste each one into the key panel at the top of the app. They're saved to your
-device and persist between visits.
+Paste each one into the key panel at the top of the app. They're saved in your
+browser's local storage and persist between visits.
 
 > **Cost is small but not zero.** A cue sheet runs a few cents; each generated
 > track is priced per generation by Stability. Set a spend limit on both keys —
