@@ -42,8 +42,8 @@ The built-in player loops the current cue by default, since a 95-second track ne
 
 ## What you'll need
 
-This app has no backend and no account. It talks to two APIs using **your** keys,
-which stay on your device and are never sent anywhere else.
+This app has no backend and no account. It talks directly to Anthropic and
+Stability AI using **your** API keys, which are stored on your device.
 
 | Key | What it does | Where to get it |
 |---|---|---|
