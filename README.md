@@ -164,7 +164,7 @@ with HTTPS, and it runs.
 Released under the MIT License — © 2026 bdredenbach.
 
 You are free to use, modify, distribute, and build upon this software,
-subject to the terms of the MIT License. See `LICENSE.txt` for the full license.
+subject to the terms of the MIT License. See `LICENSE.txt` or MIT License tab for the full license.
 
 This license applies to the software in this repository only. It does not grant
 rights to comic artwork or to third-party services used by the application.
