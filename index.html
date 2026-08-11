@@ -909,6 +909,7 @@ function reconcilePlayback(){
   }
   if(player.pendingPlay && el.paused && el.src){
     el.play().then(()=>{
+      startPlaybackVisualLoop();
       player.pendingPlay = false;
       holdScreen();
       setSessionState();
@@ -959,6 +960,7 @@ function updateSession(){
     const el = currentEl();
     if(!el.src) return;
     el.play().then(()=>{
+      startPlaybackVisualLoop();
       player.pendingPlay = false;
       holdScreen();
       setSessionState();
@@ -1436,6 +1438,66 @@ function fmtTime(sec){
   const ss=String(total%60).padStart(2,'0');
   return m+':'+ss;
 }
+
+let playbackFrame = 0;
+let playbackLastTimestamp = 0;
+
+function updatePlaybackVisuals(){
+  const t = player.tracks[player.idx];
+  const el = currentEl();
+  if(!t || !el) return;
+
+  const range = document.getElementById('pbRange');
+  const elapsed = document.getElementById('pbElapsed');
+  const duration = document.getElementById('pbDuration');
+
+  const dur = Number.isFinite(el.duration) ? el.duration : 0;
+  const pos = Number.isFinite(el.currentTime) ? Math.max(0, el.currentTime) : 0;
+
+  if(dur){
+    range.max = String(dur);
+    range.value = String(Math.min(pos, dur));
+  }
+
+  elapsed.textContent = fmtTime(pos);
+  duration.textContent = fmtTime(dur);
+}
+
+function stopPlaybackVisualLoop(){
+  if(playbackFrame){
+    cancelAnimationFrame(playbackFrame);
+    playbackFrame = 0;
+  }
+  playbackLastTimestamp = 0;
+}
+
+function playbackVisualLoop(timestamp){
+  playbackFrame = 0;
+
+  const el = currentEl();
+  if(!el || el.paused || el.ended){
+    stopPlaybackVisualLoop();
+    return;
+  }
+
+  // Keep the slider visually fluid while the audio element remains
+  // the source of truth for actual playback time.
+  updatePlaybackVisuals();
+
+  // Avoid doing expensive work more often than the display needs.
+  if(timestamp - playbackLastTimestamp >= 120){
+    playbackLastTimestamp = timestamp;
+  }
+
+  playbackFrame = requestAnimationFrame(playbackVisualLoop);
+}
+
+function startPlaybackVisualLoop(){
+  if(playbackFrame) return;
+  playbackLastTimestamp = 0;
+  playbackFrame = requestAnimationFrame(playbackVisualLoop);
+}
+
 function paintBar(){
   const t = player.tracks[player.idx];
 
@@ -1471,6 +1533,7 @@ function paintBar(){
 function wireAudioEvents(el){
   el.addEventListener('ended', ()=>{
     if(el !== currentEl()) return;
+    stopPlaybackVisualLoop();
 
     if(player.mode === 'ADVANCE' &&
        player.idx < player.tracks.length - 1){
@@ -1485,6 +1548,7 @@ function wireAudioEvents(el){
 
   el.addEventListener('play', ()=>{
     if(el !== currentEl()) return;
+    startPlaybackVisualLoop();
     player.pendingPlay = false;
     setSessionState();
     updatePositionState();
@@ -1492,6 +1556,8 @@ function wireAudioEvents(el){
   });
   el.addEventListener('pause', ()=>{
     if(el !== currentEl()) return;
+    stopPlaybackVisualLoop();
+    updatePlaybackVisuals();
     savePlaybackStateSoon();
     setSessionState();
     paintBar();
@@ -1577,6 +1643,7 @@ function goTo(i, autoplay){
   player.useB = !player.useB;
   if(shouldPlay){
     to.play().then(()=>{
+      startPlaybackVisualLoop();
       player.pendingPlay = false;
       holdScreen();
       setSessionState();
@@ -1622,7 +1689,7 @@ document.getElementById('pbRange').addEventListener('input', e=>{
   el.currentTime=next;
   updatePositionState();
   schedulePlaybackSave();
-  document.getElementById('pbElapsed').textContent=fmtTime(next);
+  updatePlaybackVisuals();
 });
 
 document.getElementById('pbRange').addEventListener('change', ()=>{
@@ -1670,7 +1737,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I3';
+const BUILD = '2026-08-11-I3.1';
 
 async function runDiag(){
   const out = [];

@@ -2,9 +2,9 @@
    Caches the app shell so it launches with no connection. API calls to
    Anthropic and Stability always go to the network — they're never cached.
 
-   v6: playback progress bar build I3.
+   v7: fluid playback progress bar build I3.1.
    The page itself remains network-first so new versions are picked up promptly. */
-const CACHE = 'comic-scorer-v6';
+const CACHE = 'comic-scorer-v7';
 
 const SHELL = [
   './',
