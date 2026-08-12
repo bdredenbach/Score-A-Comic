@@ -2,9 +2,9 @@
    Caches the app shell so it launches with no connection. API calls to
    Anthropic and Stability always go to the network — they're never cached.
 
-   v10: J4 polish — longer crossfade preparation, README/UI polish, and cache-safe layout updates.
+   v11: J5 rolling preload — two-cue look-ahead for scalable long scores.
    The page itself remains network-first so new versions are picked up promptly. */
-const CACHE = 'comic-scorer-v18-j4-crossfade-polish';
+const CACHE = 'comic-scorer-v19-j5-rolling-preload';
 
 const SHELL = [
   './',

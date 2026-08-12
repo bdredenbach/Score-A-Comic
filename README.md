@@ -95,6 +95,7 @@ Compared with the original 1.0 workflow, 2.0 adds:
 - **Saved generated audio** — generated cues stay with their issue for later listening.
 - **Continuous playback** — a single master player can move through the cue sequence automatically.
 - **Crossfades** — the next cue is prepared ahead of time and overlapped into the current cue.
+- **Rolling preload** — the next two cues stay prepared as the score advances, so long scores can play smoothly without loading every cue simultaneously.
 - **Long-form cue generation** — music is generated as a 95-second continuation while the reader-facing cue window is 90 seconds.
 - **Android Media Session/background playback** — playback controls can remain available while reading or multitasking.
 - **Installable PWA** — install Score-A-Comic to the home screen and use it like an app.

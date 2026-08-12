@@ -1436,7 +1436,7 @@ async function loadIssue(id, resumeNow=false){
   if(!issue || !Array.isArray(issue.sheet)) return;
   currentIssue = issue; currentIssueId=id; currentIssueName=issue.name||'Untitled Issue'; issueName.value=currentIssueName;
   render(issue.sheet,true,id,currentIssueName);
-  player.tracks=[]; player.idx=-1; player.useB=false; player.pendingPlay=false;
+  player.tracks=[]; player.idx=-1; player.currentSlot=0; player.pendingPlay=false; slots().forEach(clearSlot);
   player.mode = issue.playback?.mode === 'LOOP' ? 'LOOP' : 'ADVANCE';
   for(let i=0;i<issue.sheet.length;i++){
     const rec = await idbGet('tracks',id+':'+i);
@@ -1477,61 +1477,108 @@ function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;',
 
 /* ---- Sequential player: native HTML audio ----
    ADVANCE is the default so the score follows the reading sequence automatically.
-   ADVANCE chains cues automatically when each track ends.
-   This version intentionally uses native HTMLAudio playback without
-   Web Audio or gain nodes. The second audio element preloads the next cue
-   so the browser already has it ready when ADVANCE needs it. */
+   The player uses THREE native audio elements:
+     - one current cue
+     - one fully preloaded next cue
+     - one additional look-ahead cue
+   The three slots rotate forward as playback advances. This keeps 15- or
+   20-cue scores scalable without loading the entire score into memory at once. */
 const player = {
   tracks: [],        // {order, id, title, url}
   idx: -1,
-  mode: 'ADVANCE',   // 'LOOP' | 'ADVANCE' — default follows cues automatically
-  useB: false,
+  mode: 'ADVANCE',   // 'LOOP' | 'ADVANCE'
+  currentSlot: 0,
   a: new Audio(),
   b: new Audio(),
+  c: new Audio(),
   pendingPlay: false,
   crossfadeActive: false,
   crossfadeTimer: 0,
   crossfadeInterval: 0
 };
-player.a.preload = 'auto';
-player.b.preload = 'auto';
-player.a.setAttribute('playsinline','');
-player.b.setAttribute('playsinline','');
 
-function currentEl(){ return player.useB ? player.b : player.a; }
-function idleEl(){ return player.useB ? player.a : player.b; }
+[player.a, player.b, player.c].forEach(el=>{
+  el.preload = 'auto';
+  el.setAttribute('playsinline','');
+  el.volume = 1;
+});
 
-function clearIdle(){
-  const idle = idleEl();
-  try{ idle.pause(); }catch(e){}
-  idle.removeAttribute('src');
-  try{ idle.load(); }catch(e){}
+function slots(){ return [player.a, player.b, player.c]; }
+function currentEl(){ return slots()[player.currentSlot]; }
+function nextSlotIndex(){ return (player.currentSlot + 1) % 3; }
+function lookaheadSlotIndex(){ return (player.currentSlot + 2) % 3; }
+function nextEl(){ return slots()[nextSlotIndex()]; }
+function lookaheadEl(){ return slots()[lookaheadSlotIndex()]; }
+
+function clearSlot(el){
+  if(!el) return;
+  try{ el.pause(); }catch(e){}
+  el.removeAttribute('src');
+  delete el.dataset.trackIndex;
+  delete el.dataset.warmedFor;
+  el.volume = 0;
+  el.muted = false;
+  try{ el.load(); }catch(e){}
 }
 
-function preloadNext(){
-  const n = player.tracks[player.idx + 1];
-  if(!n) return;
+function clearPreloaded(){
+  clearSlot(nextEl());
+  clearSlot(lookaheadEl());
+}
 
-  const to = idleEl();
-  if(!to) return;
+function setSlotTrack(el, index, volume=0){
+  const t = player.tracks[index];
+  if(!el || !t) return false;
 
-  if(to.src !== n.url){
-    try{ to.pause(); }catch(e){}
-    to.src = n.url;
-    to.preload = 'auto';
-    to.loop = false;
-    to.volume = 0;
-    try{ to.load(); }catch(e){}
+  const same = el.src === t.url && el.dataset.trackIndex === String(index);
+  if(!same){
+    try{ el.pause(); }catch(e){}
+    el.removeAttribute('src');
+    try{ el.load(); }catch(e){}
+    el.src = t.url;
+    el.preload = 'auto';
+    el.loop = false;
+    el.dataset.trackIndex = String(index);
+    delete el.dataset.warmedFor;
+    try{ el.load(); }catch(e){}
+  }else{
+    el.preload = 'auto';
+    el.loop = false;
   }
 
-  to.preload = 'auto';
-  to.loop = false;
-  to.volume = 0;
-  // Preload only. Do NOT start the next cue here: doing so can let a muted
-  // cue run for dozens of seconds before the handoff, causing M2/M3/M4 to
-  // become audible partway through the file.
+  el.volume = volume;
+  el.muted = false;
+  return true;
 }
 
+/* Keep exactly two future cues prepared. The window rolls forward every time
+   the current cue changes: current + next + look-ahead. */
+function preloadWindow(){
+  if(player.mode !== 'ADVANCE' || player.idx < 0) return;
+
+  const nextIndex = player.idx + 1;
+  const lookIndex = player.idx + 2;
+  const n = nextEl();
+  const l = lookaheadEl();
+
+  if(nextIndex < player.tracks.length){
+    setSlotTrack(n, nextIndex, 0);
+    if(n.readyState < 2) { try{ n.load(); }catch(e){} }
+  }else{
+    clearSlot(n);
+  }
+
+  if(lookIndex < player.tracks.length){
+    setSlotTrack(l, lookIndex, 0);
+    if(l.readyState < 2) { try{ l.load(); }catch(e){} }
+  }else{
+    clearSlot(l);
+  }
+}
+
+function findSlotForTrack(index){
+  return slots().findIndex(el => el.dataset.trackIndex === String(index));
+}
 
 function registerTrack(m, url){
   const order = movsOrder.indexOf(m);
@@ -1550,9 +1597,10 @@ function registerTrack(m, url){
 
   if(player.idx<0){
     player.idx = 0;
+    player.currentSlot = 0;
     loadCue(0, false);
   }else{
-    preloadNext();
+    preloadWindow();
   }
 
   paintBar();
@@ -1579,83 +1627,11 @@ function updatePlaybackVisuals(){
   const duration = document.getElementById('pbDuration');
 
   const rawDur = Number.isFinite(el.duration) ? el.duration : 0;
-  const dur = rawDur ? Math.min(rawDur, PLAYBACK_SECONDS) : 0;
+  const dur = rawDur ? Math.min(rawDur, PLAYBACK_CUE_SECONDS) : 0;
   const pos = Number.isFinite(el.currentTime)
-    ? Math.max(0, Math.min(el.currentTime, dur || PLAYBACK_SECONDS))
+    ? Math.max(0, Math.min(el.currentTime, dur || PLAYBACK_CUE_SECONDS))
     : 0;
 
-  if(dur){
-    range.max = String(dur);
-    range.value = String(Math.min(pos, dur));
-  }
-
-  elapsed.textContent = fmtTime(pos);
-  duration.textContent = fmtTime(dur);
-}
-
-function stopPlaybackVisualLoop(){
-  if(playbackFrame){
-    cancelAnimationFrame(playbackFrame);
-    playbackFrame = 0;
-  }
-  playbackLastTimestamp = 0;
-}
-
-function playbackVisualLoop(timestamp){
-  playbackFrame = 0;
-
-  const el = currentEl();
-  if(!el || el.paused || el.ended){
-    stopPlaybackVisualLoop();
-    return;
-  }
-
-  // Keep the slider visually fluid while the audio element remains
-  // the source of truth for actual playback time.
-  updatePlaybackVisuals();
-
-  // Avoid doing expensive work more often than the display needs.
-  if(timestamp - playbackLastTimestamp >= 120){
-    playbackLastTimestamp = timestamp;
-  }
-
-  playbackFrame = requestAnimationFrame(playbackVisualLoop);
-}
-
-function startPlaybackVisualLoop(){
-  if(playbackFrame) return;
-  playbackLastTimestamp = 0;
-  playbackFrame = requestAnimationFrame(playbackVisualLoop);
-}
-
-function paintBar(){
-  const t = player.tracks[player.idx];
-
-  document.getElementById('pbCue').textContent =
-    t ? (t.id||('M'+(player.idx+1))) : '—';
-  document.getElementById('pbTitle').textContent =
-    t ? t.title : 'No track loaded';
-
-  const pbError = document.getElementById('pbError');
-  pbError.textContent = player.error || '';
-  pbError.classList.toggle('on', !!player.error);
-
-  document.getElementById('pbPrev').disabled = player.idx<=0;
-  document.getElementById('pbNext').disabled =
-    player.idx>=player.tracks.length-1;
-
-  document.getElementById('pbMode').textContent = player.mode;
-
-  const el = currentEl();
-  document.getElementById('pbPlay').textContent =
-    (el && !el.paused) ? '❚❚' : '▶';
-
-  const range=document.getElementById('pbRange');
-  const elapsed=document.getElementById('pbElapsed');
-  const duration=document.getElementById('pbDuration');
-  const sourceDur=el && Number.isFinite(el.duration) ? el.duration : 0;
-  const dur=Math.min(sourceDur, PLAYBACK_CUE_SECONDS);
-  const pos=el && Number.isFinite(el.currentTime) ? Math.max(0,Math.min(el.currentTime,dur)) : 0;
   range.max=String(dur||0);
   range.value=String(dur ? Math.min(pos,dur) : 0);
   range.disabled=!t || !dur;
@@ -1689,6 +1665,7 @@ function wireAudioEvents(el){
     updatePositionState();
     paintBar();
   });
+
   el.addEventListener('pause', ()=>{
     if(el !== currentEl()) return;
     stopPlaybackVisualLoop();
@@ -1738,10 +1715,9 @@ function wireAudioEvents(el){
 }
 wireAudioEvents(player.a);
 wireAudioEvents(player.b);
-
+wireAudioEvents(player.c);
 
 const PLAYBACK_SECONDS = 90;
-// Final polish: a longer overlap plus earlier preparation gives mobile browsers more time to have the next cue ready before the handoff.
 const CROSSFADE_SECONDS = 3.0;
 const PLAYBACK_CUE_SECONDS = 90;
 const CROSSFADE_PRELOAD_SECONDS = 20;
@@ -1750,8 +1726,11 @@ const CROSSFADE_WARMUP_SECONDS = 8.0;
 
 function cancelCrossfade(){
   try{
-    if(player.a) { player.a.muted = false; player.a.volume = 1; }
-    if(player.b) { player.b.muted = false; player.b.volume = 1; }
+    slots().forEach(el=>{
+      el.muted = false;
+      if(el !== currentEl()) el.volume = 0;
+    });
+    currentEl().volume = 1;
   }catch(e){}
   if(player.crossfadeTimer){
     clearTimeout(player.crossfadeTimer);
@@ -1765,43 +1744,33 @@ function cancelCrossfade(){
 }
 
 function nextCueReady(){
-  const to = idleEl();
+  const to = nextEl();
   const target = player.tracks[player.idx + 1];
   if(!to || !target) return false;
 
-  // Generated cues are local media. HAVE_CURRENT_DATA (2) is enough to
-  // begin playback; requiring HAVE_FUTURE_DATA (3) could cause an avoidable
-  // hard handoff/dead-air fallback on mobile Chrome.
-  return to.src === target.url && to.readyState >= 2;
+  // HAVE_CURRENT_DATA is enough for a local generated file to begin playback.
+  return to.src === target.url &&
+         to.dataset.trackIndex === String(player.idx + 1) &&
+         to.readyState >= 2;
 }
 
 function prepareCrossfadeNext(allowWarm=false){
   if(player.mode !== 'ADVANCE') return;
   if(player.idx < 0 || player.idx >= player.tracks.length - 1) return;
 
-  const to = idleEl();
+  const to = nextEl();
   const target = player.tracks[player.idx + 1];
   if(!to || !target) return;
 
-  if(to.src !== target.url){
-    try{ to.pause(); }catch(e){}
-    to.src = target.url;
-    to.preload = 'auto';
-    to.loop = false;
-    to.volume = 0;
-    try{ to.load(); }catch(e){}
+  if(to.src !== target.url || to.dataset.trackIndex !== String(player.idx + 1)){
+    setSlotTrack(to, player.idx + 1, 0);
   }
-
-  to.preload = 'auto';
-  to.loop = false;
-  to.volume = 0;
 
   try{
     if(to.readyState < 3) to.load();
 
-    // Warm only in the final few seconds before the handoff. Never start
-    // the next cue early enough for its currentTime to drift into the middle
-    // of the file. The handoff will seek back to 0:00 before becoming audible.
+    // Warm only in the final few seconds. It is always restarted at 0:00
+    // before becoming audible, so warming can never make a cue begin late.
     if(allowWarm && to.readyState >= 2 && to.paused && !to.dataset.warmedFor){
       to.dataset.warmedFor = target.url;
       to.muted = true;
@@ -1812,21 +1781,18 @@ function prepareCrossfadeNext(allowWarm=false){
   }catch(e){}
 }
 
-
 function beginCrossfade(){
   if(player.crossfadeActive || player.mode !== 'ADVANCE') return;
   if(player.idx < 0 || player.idx >= player.tracks.length - 1) return;
 
   const from = currentEl();
-  const to = idleEl();
+  const to = nextEl();
   const fromIndex = player.idx;
   const nextIndex = fromIndex + 1;
   const target = player.tracks[nextIndex];
 
   if(!from || !to || !target || from.paused) return;
 
-  // If the next file is not already ready, never create a multi-second
-  // silence. Fall back to the existing immediate ADVANCE behavior.
   if(!nextCueReady()){
     goTo(nextIndex, true);
     return;
@@ -1838,9 +1804,11 @@ function beginCrossfade(){
 
   to.volume = 0;
 
-  // Switch logical track state at the beginning of the overlap.
+  const oldSlot = player.currentSlot;
+  const newSlot = nextSlotIndex();
+
   player.idx = nextIndex;
-  player.useB = !player.useB;
+  player.currentSlot = newSlot;
 
   const switched = currentEl();
   const old = from;
@@ -1856,13 +1824,13 @@ function beginCrossfade(){
     player.crossfadeTimer = 0;
 
     try{ old.pause(); }catch(e){}
-    old.volume = 1;
+    old.volume = 0;
     old.muted = false;
     delete old.dataset.warmedFor;
     switched.volume = 1;
     switched.muted = false;
 
-    preloadNext();
+    preloadWindow();
     schedulePlaybackSave();
     updateSession();
     updatePositionState();
@@ -1878,14 +1846,12 @@ function beginCrossfade(){
     player.crossfadeTimer = 0;
 
     try{ switched.pause(); }catch(e){}
-    switched.volume = 1;
+    switched.volume = 0;
 
     player.idx = fromIndex;
-    player.useB = !player.useB;
+    player.currentSlot = oldSlot;
     old.volume = 1;
 
-    // Last-resort safety: retry the normal immediate transition rather
-    // than leaving playback stopped.
     player.error = '';
     goTo(nextIndex, true);
   };
@@ -1909,10 +1875,7 @@ function beginCrossfade(){
     fade();
   };
 
-  // The next element may have been warmed muted, but warming is never allowed
-  // to determine the audible start position. Always restart the cue at 0:00.
-  // Because the media element has already been loaded/decoded, this play() is
-  // much cheaper than starting a cold network load at the handoff.
+  // A warmed/preloaded next cue is ALWAYS reset to 0:00 before becoming audible.
   try{ switched.pause(); }catch(e){}
   try{ switched.currentTime = 0; }catch(e){}
   switched.muted = false;
@@ -1926,27 +1889,27 @@ function beginCrossfade(){
 function loadCue(i, autoplay){
   const t = player.tracks[i];
   if(!t) return;
+
   cancelCrossfade();
   player.error = '';
 
   const el = currentEl();
-  // A newly loaded cue must always begin at the beginning. Do not let a
-  // previous source's currentTime leak into a newly selected cue.
   try{ el.pause(); }catch(e){}
   el.removeAttribute('src');
+  delete el.dataset.trackIndex;
+  delete el.dataset.warmedFor;
   try{ el.load(); }catch(e){}
+
   el.src = t.url;
   el.preload = 'auto';
   el.loop = (player.mode === 'LOOP');
   el.volume = 1;
   el.muted = false;
-  delete el.dataset.warmedFor;
+  el.dataset.trackIndex = String(i);
   try{ el.currentTime = 0; }catch(e){}
 
   if(autoplay){
     el.play().then(()=>{
-      // Reassert zero after the browser attaches the new media resource.
-      // This prevents occasional mobile/browser source-position carryover.
       if(el.currentTime > 0.05 && !el.dataset.allowResume){
         try{ el.currentTime = 0; }catch(e){}
       }
@@ -1954,56 +1917,53 @@ function loadCue(i, autoplay){
       holdScreen();
       setSessionState();
       paintBar();
-    }).catch(err=>{
+    }).catch(()=>{
       player.pendingPlay = false;
       player.error = 'Playback could not start. The saved audio may be unavailable — try generating this cue again.';
       setSessionState();
       paintBar();
     });
   }
-  preloadNext();
+
+  preloadWindow();
   paintBar();
 }
 
-/* Switch to the already-preloaded next/previous cue. Crossfade is handled
-   separately for automatic ADVANCE transitions; manual navigation stays instant. */
+/* Switch to a prepared cue when possible. Manual navigation remains instant;
+   automatic ADVANCE transitions use the crossfade path above. */
 function goTo(i, autoplay){
   if(i<0 || i>=player.tracks.length) return;
 
   cancelCrossfade();
   player.error = '';
   savePlaybackStateSoon();
+
   const from = currentEl();
-  const to = idleEl();
+  const oldSlot = player.currentSlot;
   const target = player.tracks[i];
 
-  if(to.src !== target.url){
-    try{ to.pause(); }catch(e){}
-    to.src = target.url;
-    to.preload = 'auto';
-    try{ to.load(); }catch(e){}
-  }else{
-    // A cue already sitting in the idle element must still start at zero;
-    // never inherit a previous playback position.
-    try{ to.pause(); }catch(e){}
-    try{ to.currentTime = 0; }catch(e){}
-    delete to.dataset.warmedFor;
+  let targetSlot = findSlotForTrack(i);
+  if(targetSlot < 0 || targetSlot === oldSlot){
+    targetSlot = nextSlotIndex();
+    setSlotTrack(slots()[targetSlot], i, 0);
   }
+
+  const to = slots()[targetSlot];
+  try{ to.pause(); }catch(e){}
+  try{ to.currentTime = 0; }catch(e){}
   to.loop = (player.mode === 'LOOP');
   to.volume = 1;
   to.muted = false;
 
   player.idx = i;
+  player.currentSlot = targetSlot;
   player.pendingPlay = false;
 
   const shouldPlay = autoplay || !from.paused;
 
-  // Stop the old element before starting the new one. This keeps only one
-  // native media element active at a time.
   try{ from.pause(); }catch(e){}
-  from.volume = 1;
+  if(from !== to) from.volume = 0;
 
-  player.useB = !player.useB;
   if(shouldPlay){
     to.play().then(()=>{
       startPlaybackVisualLoop();
@@ -2019,7 +1979,7 @@ function goTo(i, autoplay){
     });
   }
 
-  preloadNext();
+  preloadWindow();
   paintBar();
 }
 
@@ -2101,7 +2061,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-12-J4-CROSSFADE-README-POLISH';
+const BUILD = '2026-08-12-J5-ROLLING-PRELOAD';
 
 async function runDiag(){
   const out = [];
