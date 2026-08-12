@@ -189,3 +189,8 @@ distribute any comic content.</sub>
 <sub>· Built with Claude AI · Built with Stability AI · 2.0 test build</sub>
 </div>
 </div>
+
+
+### Troubleshooting: stale app / malformed Claude response
+
+If scoring reports that Claude replied but the app did not receive a valid cue sheet, first tap **Refresh app cache** beneath **Score pages** and try scoring again. This clears the PWA app-shell/service-worker cache only; it does **not** delete saved scores, generated audio, or API keys. A normal browser refresh does not necessarily clear an installed PWA's cached app shell.

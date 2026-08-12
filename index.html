@@ -282,6 +282,8 @@
     letter-spacing:.06em;color:var(--gold);border-color:var(--line);
   }
   .wrap{padding-bottom:96px;}
+  .score-stack{display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 1 auto;}
+  .score-stack #mainReset{align-self:center;}
 
   .cue-actions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;}
   .audio-note{
@@ -342,13 +344,13 @@
   .issue-list{display:grid;gap:8px;}
   #libraryPanel.library-collapsed .issue-list{display:none;}
   #libraryPanel.library-collapsed{padding-bottom:10px;}
-  .issue-card{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:var(--ink);cursor:pointer;}
+  .issue-card{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:var(--ink);cursor:pointer;min-width:0;width:100%;box-sizing:border-box;}
   .issue-card:hover{border-color:var(--gold);}
   .issue-card.current{border-color:var(--crimson);box-shadow:inset 3px 0 0 var(--crimson);}
-  .issue-main{flex:1;min-width:0;}
-  .issue-name{font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .issue-main{flex:1 1 auto;min-width:0;overflow:hidden;}
+  .issue-name{font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
   .issue-meta{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--paper-dim);margin-top:3px;}
-  .issue-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+  .issue-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 auto;min-width:0;flex-wrap:wrap;}
   .issue-resume{border-color:var(--gold);color:var(--gold);}
   .issue-rename-input{
     width:100%;min-width:0;background:var(--ink-2);border:1px solid var(--gold);
@@ -358,6 +360,10 @@
   .issue-rename-actions{display:flex;gap:6px;margin-top:6px;}
   input[type=text]{background:var(--ink);border:1px solid var(--line);color:var(--paper);border-radius:5px;padding:7px 9px;font-family:'Inter',sans-serif;font-size:13px;min-width:180px;flex:1;}
   input[type=text]:focus{outline:2px solid var(--gold);outline-offset:2px;}
+  @media (max-width:560px){
+    .issue-card{align-items:flex-start;}
+    .issue-actions{max-width:48%;}
+  }
   @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
 </style>
 </head>
@@ -435,12 +441,14 @@
       <input type="text" id="issueName" placeholder="e.g. Avengers #1" maxlength="80" autocomplete="off">
       <span class="keynote" style="flex-basis:100%;margin:0;">You can rename a saved score anytime from the list above.</span>
     </div>
-    <div class="row">
+    <div class="row score-controls">
       <label class="fld" for="startpg">FIRST PAGE #</label>
       <input type="number" id="startpg" value="1" min="1">
       <button class="ghost" id="clear" style="display:none;">Clear pages</button>
-      <button class="primary" id="score" disabled>Score pages</button>
-      <button class="ghost" id="mainReset" type="button">Refresh app cache</button>
+      <div class="score-stack">
+        <button class="primary" id="score" disabled>Score pages</button>
+        <button class="ghost" id="mainReset" type="button">Refresh app cache</button>
+      </div>
     </div>
     <div class="keynote" style="margin-top:10px;">If scoring ever returns a stale-app or malformed-response error, <b>Refresh app cache</b> clears the app shell cache without deleting your saved scores, audio, or API keys.</div>
     <div class="status" id="status"></div>
@@ -1733,11 +1741,12 @@ wireAudioEvents(player.b);
 
 
 const PLAYBACK_SECONDS = 90;
-const CROSSFADE_SECONDS = 1.2;
+// Final polish: a slightly longer overlap plus earlier preparation prevents a cold handoff from sounding like dead air.
+const CROSSFADE_SECONDS = 2.0;
 const PLAYBACK_CUE_SECONDS = 90;
-const CROSSFADE_PRELOAD_SECONDS = 8;
+const CROSSFADE_PRELOAD_SECONDS = 15;
 const CROSSFADE_TICK_MS = 40;
-const CROSSFADE_WARMUP_SECONDS = 3.5;
+const CROSSFADE_WARMUP_SECONDS = 6.0;
 
 function cancelCrossfade(){
   try{
@@ -1760,9 +1769,10 @@ function nextCueReady(){
   const target = player.tracks[player.idx + 1];
   if(!to || !target) return false;
 
-  // readyState >= 3 means HAVE_FUTURE_DATA: enough media data is
-  // available to begin playback without waiting for the network.
-  return to.src === target.url && to.readyState >= 3;
+  // Generated cues are local media. HAVE_CURRENT_DATA (2) is enough to
+  // begin playback; requiring HAVE_FUTURE_DATA (3) could cause an avoidable
+  // hard handoff/dead-air fallback on mobile Chrome.
+  return to.src === target.url && to.readyState >= 2;
 }
 
 function prepareCrossfadeNext(allowWarm=false){
@@ -1792,7 +1802,7 @@ function prepareCrossfadeNext(allowWarm=false){
     // Warm only in the final few seconds before the handoff. Never start
     // the next cue early enough for its currentTime to drift into the middle
     // of the file. The handoff will seek back to 0:00 before becoming audible.
-    if(allowWarm && to.readyState >= 3 && to.paused && !to.dataset.warmedFor){
+    if(allowWarm && to.readyState >= 2 && to.paused && !to.dataset.warmedFor){
       to.dataset.warmedFor = target.url;
       to.muted = true;
       try{ to.currentTime = 0; }catch(e){}
@@ -2091,7 +2101,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-12-J2-PLAYBACK-CACHE';
+const BUILD = '2026-08-12-J3-CROSSFADE-FINAL';
 
 async function runDiag(){
   const out = [];
