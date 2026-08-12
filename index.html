@@ -1470,22 +1470,29 @@ function clearIdle(){
 }
 
 function preloadNext(){
-  const next = player.tracks[player.idx + 1];
-  const idle = idleEl();
-  if(!next){
-    clearIdle();
-    return;
+  const n = player.tracks[player.idx + 1];
+  if(!n) return;
+
+  const to = idleEl();
+  if(!to) return;
+
+  if(to.src !== n.url){
+    try{ to.pause(); }catch(e){}
+    to.src = n.url;
+    to.preload = 'auto';
+    to.loop = false;
+    to.volume = 0;
+    try{ to.load(); }catch(e){}
   }
 
-  // Do not disturb the element that is currently playing.
-  if(idle.src !== next.url){
-    try{ idle.pause(); }catch(e){}
-    idle.src = next.url;
-    idle.preload = 'auto';
-    idle.loop = false;
-    try{ idle.load(); }catch(e){}
-  }
+  to.preload = 'auto';
+  to.loop = false;
+  to.volume = 0;
+
+  // Explicitly prepare the next cue for crossfade.
+  prepareCrossfadeNext();
 }
+
 
 function registerTrack(m, url){
   const order = movsOrder.indexOf(m);
@@ -1658,6 +1665,11 @@ function wireAudioEvents(el){
        !player.crossfadeActive &&
        Number.isFinite(el.duration) && el.duration > 0){
       const remaining = el.duration - el.currentTime;
+
+      if(remaining <= CROSSFADE_PRELOAD_SECONDS){
+        prepareCrossfadeNext();
+      }
+
       if(remaining <= CROSSFADE_SECONDS){
         beginCrossfade();
       }
@@ -1684,6 +1696,7 @@ wireAudioEvents(player.b);
 
 
 const CROSSFADE_SECONDS = 1.2;
+const CROSSFADE_PRELOAD_SECONDS = 8;
 const CROSSFADE_TICK_MS = 40;
 
 function cancelCrossfade(){
@@ -1698,6 +1711,44 @@ function cancelCrossfade(){
   player.crossfadeActive = false;
 }
 
+function nextCueReady(){
+  const to = idleEl();
+  const target = player.tracks[player.idx + 1];
+  if(!to || !target) return false;
+
+  // readyState >= 3 means HAVE_FUTURE_DATA: enough media data is
+  // available to begin playback without waiting for the network.
+  return to.src === target.url && to.readyState >= 3;
+}
+
+function prepareCrossfadeNext(){
+  if(player.mode !== 'ADVANCE') return;
+  if(player.idx < 0 || player.idx >= player.tracks.length - 1) return;
+
+  const to = idleEl();
+  const target = player.tracks[player.idx + 1];
+  if(!to || !target) return;
+
+  if(to.src !== target.url){
+    try{ to.pause(); }catch(e){}
+    to.src = target.url;
+    to.preload = 'auto';
+    to.loop = false;
+    to.volume = 0;
+    try{ to.load(); }catch(e){}
+  }
+
+  to.preload = 'auto';
+  to.loop = false;
+  to.volume = 0;
+
+  // Ask the browser to fetch ahead. The audio element itself remains
+  // the playback engine; no Web Audio is involved.
+  try{
+    if(to.readyState < 3) to.load();
+  }catch(e){}
+}
+
 function beginCrossfade(){
   if(player.crossfadeActive || player.mode !== 'ADVANCE') return;
   if(player.idx < 0 || player.idx >= player.tracks.length - 1) return;
@@ -1710,21 +1761,20 @@ function beginCrossfade(){
 
   if(!from || !to || !target || from.paused) return;
 
+  // If the next file is not already ready, never create a multi-second
+  // silence. Fall back to the existing immediate ADVANCE behavior.
+  if(!nextCueReady()){
+    goTo(nextIndex, true);
+    return;
+  }
+
   player.crossfadeActive = true;
   player.pendingPlay = false;
   player.error = '';
 
-  if(to.src !== target.url){
-    try{ to.pause(); }catch(e){}
-    to.src = target.url;
-    to.preload = 'auto';
-    to.loop = false;
-    try{ to.load(); }catch(e){}
-  }
-
-  to.loop = false;
   to.volume = 0;
 
+  // Switch logical track state at the beginning of the overlap.
   player.idx = nextIndex;
   player.useB = !player.useB;
 
@@ -1740,9 +1790,11 @@ function beginCrossfade(){
     }
     player.crossfadeActive = false;
     player.crossfadeTimer = 0;
+
     try{ old.pause(); }catch(e){}
     old.volume = 1;
     switched.volume = 1;
+
     preloadNext();
     schedulePlaybackSave();
     updateSession();
@@ -1757,14 +1809,18 @@ function beginCrossfade(){
     }
     player.crossfadeActive = false;
     player.crossfadeTimer = 0;
+
     try{ switched.pause(); }catch(e){}
     switched.volume = 1;
+
     player.idx = fromIndex;
     player.useB = !player.useB;
     old.volume = 1;
-    player.error = 'Crossfade could not start the next cue. Continuing with the current cue.';
-    setSessionState();
-    paintBar();
+
+    // Last-resort safety: retry the normal immediate transition rather
+    // than leaving playback stopped.
+    player.error = '';
+    goTo(nextIndex, true);
   };
 
   const fade = ()=>{
@@ -1772,6 +1828,7 @@ function beginCrossfade(){
     const p = Math.max(0, Math.min(1, elapsed / fadeMs));
     old.volume = Math.max(0, 1 - p);
     switched.volume = Math.min(1, p);
+
     if(p >= 1) finish();
   };
 
@@ -1945,7 +2002,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I4.2';
+const BUILD = '2026-08-11-I4.3';
 
 async function runDiag(){
   const out = [];
