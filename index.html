@@ -289,7 +289,8 @@
     margin-top:10px;line-height:1.6;
   }
   .audio-note.err{color:#e8697f;}
-  .audiowrap audio{border-radius:6px;}
+  .audiowrap audio{display:none;}
+  .audiowrap{margin-top:8px;}
   button.dl{
     display:inline-block;margin-top:8px;
     font-family:'Space Mono',monospace;font-size:11px;
@@ -1899,13 +1900,26 @@ function loadCue(i, autoplay){
   player.error = '';
 
   const el = currentEl();
+  // A newly loaded cue must always begin at the beginning. Do not let a
+  // previous source's currentTime leak into a newly selected cue.
+  try{ el.pause(); }catch(e){}
+  el.removeAttribute('src');
+  try{ el.load(); }catch(e){}
   el.src = t.url;
   el.preload = 'auto';
   el.loop = (player.mode === 'LOOP');
   el.volume = 1;
+  el.muted = false;
+  delete el.dataset.warmedFor;
+  try{ el.currentTime = 0; }catch(e){}
 
   if(autoplay){
     el.play().then(()=>{
+      // Reassert zero after the browser attaches the new media resource.
+      // This prevents occasional mobile/browser source-position carryover.
+      if(el.currentTime > 0.05 && !el.dataset.allowResume){
+        try{ el.currentTime = 0; }catch(e){}
+      }
       player.pendingPlay = false;
       holdScreen();
       setSessionState();
@@ -1938,9 +1952,16 @@ function goTo(i, autoplay){
     to.src = target.url;
     to.preload = 'auto';
     try{ to.load(); }catch(e){}
+  }else{
+    // A cue already sitting in the idle element must still start at zero;
+    // never inherit a previous playback position.
+    try{ to.pause(); }catch(e){}
+    try{ to.currentTime = 0; }catch(e){}
+    delete to.dataset.warmedFor;
   }
   to.loop = (player.mode === 'LOOP');
   to.volume = 1;
+  to.muted = false;
 
   player.idx = i;
   player.pendingPlay = false;
@@ -2050,7 +2071,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-12-I5-MEDIA-ARTWORK';
+const BUILD = '2026-08-12-J1-PLAYBACK-POLISH';
 
 async function runDiag(){
   const out = [];
