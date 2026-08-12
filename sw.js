@@ -4,7 +4,7 @@
 
    v7: fluid playback progress bar build I3.1.
    The page itself remains network-first so new versions are picked up promptly. */
-const CACHE = 'comic-scorer-v11';
+const CACHE = 'comic-scorer-v12';
 
 const SHELL = [
   './',
