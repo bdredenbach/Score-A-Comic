@@ -875,7 +875,7 @@ async function makeMusic(m, wrap, btn){
   const durationDirective = ' [SCORE-A-COMIC DURATION CONSTRAINT] Compose this as an ongoing score that continues beyond the 90-second output. Treat the 90-second file as a mid-score excerpt, not the ending. Keep active musical material, rhythm, ambience, or sustained texture through the final second. Do not create a final cadence, resolution, fade-out, decrescendo to silence, or empty tail before 90 seconds. The musical idea should feel capable of continuing past the cutoff; imagine at least 95 seconds of continuation, while outputting exactly 90 seconds.';
   const stabilityPrompt = (m.music_prompt||'').trim() + durationDirective;
   fd.append('prompt', stabilityPrompt);
-  fd.append('duration', '90');
+  fd.append('duration', '95');
   fd.append('output_format', 'mp3');
   fd.append('model', 'stable-audio-2.5');
   fd.append('steps', '8');
@@ -951,10 +951,11 @@ function updatePositionState(){
   const el = currentEl();
   if(!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
 
-  const position = Math.max(0, Math.min(el.currentTime || 0, el.duration));
+  const duration = Math.min(el.duration, PLAYBACK_CUE_SECONDS);
+  const position = Math.max(0, Math.min(el.currentTime || 0, duration));
   try{
     navigator.mediaSession.setPositionState({
-      duration: el.duration,
+      duration,
       playbackRate: el.playbackRate || 1,
       position
     });
@@ -971,7 +972,7 @@ function reconcilePlayback(){
     player.idx < player.tracks.length - 1 &&
     !player.crossfadeActive &&
     Number.isFinite(el.duration) && el.duration > 0 &&
-    el.currentTime >= el.duration - CROSSFADE_SECONDS &&
+    el.currentTime >= PLAYBACK_CUE_SECONDS - CROSSFADE_SECONDS &&
     !el.ended
   ){
     beginCrossfade();
@@ -982,7 +983,7 @@ function reconcilePlayback(){
     player.mode === 'ADVANCE' &&
     player.idx < player.tracks.length - 1 &&
     (el.ended || (Number.isFinite(el.duration) && el.duration > 0 &&
-                  el.currentTime >= el.duration - 0.15))
+                  el.currentTime >= PLAYBACK_CUE_SECONDS - 0.15))
   ){
     goTo(player.idx + 1, true);
     return;
@@ -1542,8 +1543,9 @@ function updatePlaybackVisuals(){
   const elapsed = document.getElementById('pbElapsed');
   const duration = document.getElementById('pbDuration');
 
-  const dur = Number.isFinite(el.duration) ? el.duration : 0;
-  const pos = Number.isFinite(el.currentTime) ? Math.max(0, el.currentTime) : 0;
+  const sourceDur = Number.isFinite(el.duration) ? el.duration : 0;
+  const dur = Math.min(sourceDur, PLAYBACK_CUE_SECONDS);
+  const pos = Number.isFinite(el.currentTime) ? Math.max(0, Math.min(el.currentTime, dur)) : 0;
 
   if(dur){
     range.max = String(dur);
@@ -1614,8 +1616,9 @@ function paintBar(){
   const range=document.getElementById('pbRange');
   const elapsed=document.getElementById('pbElapsed');
   const duration=document.getElementById('pbDuration');
-  const dur=el && Number.isFinite(el.duration) ? el.duration : 0;
-  const pos=el && Number.isFinite(el.currentTime) ? Math.max(0,el.currentTime) : 0;
+  const sourceDur=el && Number.isFinite(el.duration) ? el.duration : 0;
+  const dur=Math.min(sourceDur, PLAYBACK_CUE_SECONDS);
+  const pos=el && Number.isFinite(el.currentTime) ? Math.max(0,Math.min(el.currentTime,dur)) : 0;
   range.max=String(dur||0);
   range.value=String(dur ? Math.min(pos,dur) : 0);
   range.disabled=!t || !dur;
@@ -1667,13 +1670,15 @@ function wireAudioEvents(el){
        player.idx < player.tracks.length - 1 &&
        !player.crossfadeActive &&
        Number.isFinite(el.duration) && el.duration > 0){
-      const remaining = el.duration - el.currentTime;
+      const remainingToCutoff = PLAYBACK_CUE_SECONDS - el.currentTime;
+      const remainingInFile = el.duration - el.currentTime;
 
-      if(remaining <= CROSSFADE_PRELOAD_SECONDS){
+      if(remainingInFile <= CROSSFADE_PRELOAD_SECONDS ||
+         remainingToCutoff <= CROSSFADE_PRELOAD_SECONDS){
         prepareCrossfadeNext();
       }
 
-      if(remaining <= CROSSFADE_SECONDS){
+      if(remainingToCutoff <= CROSSFADE_SECONDS){
         beginCrossfade();
       }
     }
@@ -1699,6 +1704,7 @@ wireAudioEvents(player.b);
 
 
 const CROSSFADE_SECONDS = 1.2;
+const PLAYBACK_CUE_SECONDS = 90;
 const CROSSFADE_PRELOAD_SECONDS = 8;
 const CROSSFADE_TICK_MS = 40;
 const CROSSFADE_WARMUP_SECONDS = 3.5;
@@ -1982,7 +1988,7 @@ document.getElementById('pbPlay').onclick = ()=>{
 document.getElementById('pbRange').addEventListener('input', e=>{
   const el=currentEl();
   if(!el || !Number.isFinite(el.duration) || el.duration<=0) return;
-  const next=Math.max(0,Math.min(Number(e.target.value)||0,el.duration));
+  const next=Math.max(0,Math.min(Number(e.target.value)||0,PLAYBACK_CUE_SECONDS,el.duration));
   el.currentTime=next;
   updatePositionState();
   schedulePlaybackSave();
@@ -2035,7 +2041,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-11-I4.6-ENFORCED-90SEC';
+const BUILD = '2026-08-11-I4.7-GENERATE95-PLAY90';
 
 async function runDiag(){
   const out = [];
