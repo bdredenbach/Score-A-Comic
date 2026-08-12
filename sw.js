@@ -2,9 +2,9 @@
    Caches the app shell so it launches with no connection. API calls to
    Anthropic and Stability always go to the network — they're never cached.
 
-   v8: J1 playback polish — deterministic cue starts and hidden per-cue players.
+   v9: J2 playback/cache polish — deterministic cue starts, bounded warmup, and cache refresh.
    The page itself remains network-first so new versions are picked up promptly. */
-const CACHE = 'comic-scorer-v16-j1-playback';
+const CACHE = 'comic-scorer-v17-j2-playback-cache';
 
 const SHELL = [
   './',

@@ -440,7 +440,9 @@
       <input type="number" id="startpg" value="1" min="1">
       <button class="ghost" id="clear" style="display:none;">Clear pages</button>
       <button class="primary" id="score" disabled>Score pages</button>
+      <button class="ghost" id="mainReset" type="button">Refresh app cache</button>
     </div>
+    <div class="keynote" style="margin-top:10px;">If scoring ever returns a stale-app or malformed-response error, <b>Refresh app cache</b> clears the app shell cache without deleting your saved scores, audio, or API keys.</div>
     <div class="status" id="status"></div>
   </div>
 
@@ -610,6 +612,21 @@ function stopPlayer(){
   document.getElementById('playbar').classList.remove('up');
 }
 
+async function clearAppCachesOnly(){
+  // Clear only the service-worker/app-shell caches. IndexedDB (scores/audio)
+  // and localStorage (API keys) are intentionally untouched.
+  try{
+    if('caches' in window){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+    if('serviceWorker' in navigator){
+      const reg = await navigator.serviceWorker.getRegistration();
+      if(reg && reg.update) await reg.update().catch(()=>{});
+    }
+  }catch(e){}
+}
+
 function beginNewScore(){
   savePlaybackStateSoon();
   setLibraryCollapsed(true);
@@ -741,6 +758,9 @@ function validateCueSheet(parsed, pageCount, firstPage){
 scoreBtn.onclick = async ()=>{
   if(!pages.length) return;
   scoreBtn.disabled = true;
+  // Keep the installed PWA from carrying an old app shell into a fresh score.
+  // This does not reload the page or touch saved data/keys.
+  await clearAppCachesOnly();
   setStatus('Reading pages… this takes a few seconds.');
   const first = parseInt(startPg.value,10) || 1;
 
@@ -1499,9 +1519,9 @@ function preloadNext(){
   to.preload = 'auto';
   to.loop = false;
   to.volume = 0;
-
-  // Explicitly prepare the next cue for crossfade.
-  prepareCrossfadeNext();
+  // Preload only. Do NOT start the next cue here: doing so can let a muted
+  // cue run for dozens of seconds before the handoff, causing M2/M3/M4 to
+  // become audible partway through the file.
 }
 
 
@@ -1684,7 +1704,7 @@ function wireAudioEvents(el){
 
       if(remainingInFile <= CROSSFADE_PRELOAD_SECONDS ||
          remainingToCutoff <= CROSSFADE_PRELOAD_SECONDS){
-        prepareCrossfadeNext();
+        prepareCrossfadeNext(remainingToCutoff <= CROSSFADE_WARMUP_SECONDS);
       }
 
       if(remainingToCutoff <= CROSSFADE_SECONDS){
@@ -1745,7 +1765,7 @@ function nextCueReady(){
   return to.src === target.url && to.readyState >= 3;
 }
 
-function prepareCrossfadeNext(){
+function prepareCrossfadeNext(allowWarm=false){
   if(player.mode !== 'ADVANCE') return;
   if(player.idx < 0 || player.idx >= player.tracks.length - 1) return;
 
@@ -1769,13 +1789,13 @@ function prepareCrossfadeNext(){
   try{
     if(to.readyState < 3) to.load();
 
-    // Once enough data is buffered, quietly start the next native audio
-    // element muted. This "warms" playback so the audible handoff does not
-    // wait for a new play() startup at the transition point.
-    if(to.readyState >= 3 && to.paused && !to.dataset.warmedFor){
+    // Warm only in the final few seconds before the handoff. Never start
+    // the next cue early enough for its currentTime to drift into the middle
+    // of the file. The handoff will seek back to 0:00 before becoming audible.
+    if(allowWarm && to.readyState >= 3 && to.paused && !to.dataset.warmedFor){
       to.dataset.warmedFor = target.url;
       to.muted = true;
-      to.currentTime = 0;
+      try{ to.currentTime = 0; }catch(e){}
       const warm = to.play();
       if(warm && warm.catch) warm.catch(()=>{});
     }
@@ -1879,18 +1899,18 @@ function beginCrossfade(){
     fade();
   };
 
-  // If the next cue was warmed muted, it is already playing. Reveal it
-  // immediately instead of waiting for another play() startup.
-  if(!switched.paused && switched.dataset.warmedFor === target.url){
+  // The next element may have been warmed muted, but warming is never allowed
+  // to determine the audible start position. Always restart the cue at 0:00.
+  // Because the media element has already been loaded/decoded, this play() is
+  // much cheaper than starting a cold network load at the handoff.
+  try{ switched.pause(); }catch(e){}
+  try{ switched.currentTime = 0; }catch(e){}
+  switched.muted = false;
+  switched.play().then(()=>{
     startFading();
-  }else{
-    switched.muted = false;
-    switched.play().then(()=>{
-      startFading();
-    }).catch(()=>{
-      fail();
-    });
-  }
+  }).catch(()=>{
+    fail();
+  });
 }
 
 function loadCue(i, autoplay){
@@ -2071,7 +2091,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-12-J1-PLAYBACK-POLISH';
+const BUILD = '2026-08-12-J2-PLAYBACK-CACHE';
 
 async function runDiag(){
   const out = [];
@@ -2184,6 +2204,7 @@ async function hardReset(btn){
   }catch(e){}
   location.replace(location.pathname + '?fresh=' + Date.now());
 }
+document.getElementById('mainReset').onclick = function(){ hardReset(this); };
 document.getElementById('diagreset').onclick = function(){ hardReset(this); };
 document.getElementById('footReset').onclick = function(){ hardReset(this); };
 

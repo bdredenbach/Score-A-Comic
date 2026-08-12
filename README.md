@@ -137,10 +137,14 @@ directly in Chrome, Edge, or Safari.
 **Music won't generate** — Check the Stability AI key and make sure the account has
 credit. The app reports the specific error rather than failing silently.
 
-**An update didn't appear** — The app caches itself to work offline. Use **Reset App
-Data** at the bottom of the installed app, or use the readiness panel in a browser tab.
+**Claude replied, but the app says the cue sheet is missing** — First tap **Refresh app cache** on the main scoring panel.
+The app also refreshes its app-shell cache automatically when you start a new score and when you tap **Score pages**, so a stale installed copy is less likely to interfere.
 
-**My saved issue disappeared** — Do not use the browser's Clear site data command if you want to keep the local issue library and generated audio. The library is stored in IndexedDB on this device.
+**Refresh app cache** removes the PWA/service-worker cache and reloads the current app. It does **not** delete your saved scores, generated audio, or API keys. If the error persists after a cache refresh, try scoring again; Claude's response can occasionally need another attempt.
+
+**An update didn't appear** — The app caches itself to work offline. Tap **Refresh app cache** on the main scoring panel. If needed, use the same control in the install/readiness panel when viewing the app in a browser tab.
+
+**My saved issue disappeared** — Do not use the browser's Clear site data command if you want to keep the local issue library and generated audio. The library is stored in IndexedDB on this device. **Refresh app cache is safe:** it does not remove that library.
 
 **Install option missing** — Open the app in a browser tab and expand **Install
 Readiness**. It checks every requirement and identifies the one that's failing.
