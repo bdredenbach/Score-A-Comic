@@ -9,7 +9,7 @@
 Score-A-Comic looks at the pages of an issue, works out where the scenes turn,
 and writes a music cue for each one — then generates the audio and plays it back.
 
-**2.0 adds a local issue library**, so you can keep multiple scored issues on the same device instead of replacing the previous score.
+**Version 2.0 is a major playback and library upgrade over 1.0.** In addition to scoring an issue, 2.0 keeps multiple scored issues in a local on-device library, saves generated cues with each issue, lets you rename saved scores, and plays the cues as a continuous adaptive soundtrack with a master player and crossfades. It also adds installable PWA/background playback support, 95-second music generation for a 90-second playback window, Media Session controls, hidden per-cue audio controls, and a safe app-cache recovery tool for stale installed builds.
 
 <br>
 
@@ -76,9 +76,32 @@ into [Stable Audio](https://stableaudio.com) by hand.
 5. **Generate Music** — Generate the cues you want using Stability AI.
 6. **Read and Listen** — Hit play and tap `›` to advance, or use **ADVANCE** to move automatically through the cues.
 
-The player uses native browser audio, loops the current cue by default, and can
-automatically move to the next cue when the current one ends. Switch to
-**ADVANCE** for automatic playback through the score.
+> **Recommended for the best playthrough:** Generate **all cues in the score before starting automatic playback**. The player crossfades between cues and can prepare the next generated file in advance. If a cue is still being generated when playback reaches it, the transition cannot be as seamless.
+
+The player uses native browser audio and a single master playback bar. Individual cue audio
+controls are hidden to keep the interface focused. In **ADVANCE** mode, 2.0 prepares the next
+cue and crossfades into it; generated cues are treated as 95-second musical sources while the
+reader-facing playback window is 90 seconds. For the smoothest experience, generate every
+cue first and then start playback.
+
+---
+
+## What 2.0 Adds Over 1.0
+
+Compared with the original 1.0 workflow, 2.0 adds:
+
+- **Local issue library** — keep multiple scored issues on one device.
+- **Rename saved scores** — give a score a useful name after it has been created.
+- **Saved generated audio** — generated cues stay with their issue for later listening.
+- **Continuous playback** — a single master player can move through the cue sequence automatically.
+- **Crossfades** — the next cue is prepared ahead of time and overlapped into the current cue.
+- **Long-form cue generation** — music is generated as a 95-second continuation while the reader-facing cue window is 90 seconds.
+- **Android Media Session/background playback** — playback controls can remain available while reading or multitasking.
+- **Installable PWA** — install Score-A-Comic to the home screen and use it like an app.
+- **Cleaner cue cards** — individual native audio players are hidden; the master player handles listening.
+- **Safe cache recovery** — refresh the app-shell cache without deleting saved scores, generated audio, or API keys.
+
+For the best automatic playthrough, **generate all cues before pressing play** so the crossfade system has every next track available to prepare.
 
 ---
 
@@ -142,12 +165,11 @@ The app also refreshes its app-shell cache automatically when you start a new sc
 
 **Refresh app cache** removes the PWA/service-worker cache and reloads the current app. It does **not** delete your saved scores, generated audio, or API keys. If the error persists after a cache refresh, try scoring again; Claude's response can occasionally need another attempt.
 
-**An update didn't appear** — The app caches itself to work offline. Tap **Refresh app cache** on the main scoring panel. If needed, use the same control in the install/readiness panel when viewing the app in a browser tab.
+**An update didn't appear** — The app caches itself to work offline. Tap **Refresh app cache** beneath **Score pages**. This clears only the PWA app-shell/service-worker cache and reloads the current app; it does not delete saved scores, generated audio, or API keys.
 
 **My saved issue disappeared** — Do not use the browser's Clear site data command if you want to keep the local issue library and generated audio. The library is stored in IndexedDB on this device. **Refresh app cache is safe:** it does not remove that library.
 
-**Install option missing** — Open the app in a browser tab and expand **Install
-Readiness**. It checks every requirement and identifies the one that's failing.
+**Install option missing** — Open the app in a browser tab and use the **Install app** section at the bottom of the page. The **App setup & install** diagnostics below it checks the PWA requirements and identifies the one that's failing.
 
 </details>
 
@@ -190,7 +212,3 @@ distribute any comic content.</sub>
 </div>
 </div>
 
-
-### Troubleshooting: stale app / malformed Claude response
-
-If scoring reports that Claude replied but the app did not receive a valid cue sheet, first tap **Refresh app cache** beneath **Score pages** and try scoring again. This clears the PWA app-shell/service-worker cache only; it does **not** delete saved scores, generated audio, or API keys. A normal browser refresh does not necessarily clear an installed PWA's cached app shell.

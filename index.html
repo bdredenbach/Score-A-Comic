@@ -283,7 +283,7 @@
   }
   .wrap{padding-bottom:96px;}
   .score-stack{display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 1 auto;}
-  .score-stack #mainReset{align-self:center;}
+  .score-stack #mainReset{align-self:center;width:max-content;}
 
   .cue-actions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;}
   .audio-note{
@@ -361,8 +361,10 @@
   input[type=text]{background:var(--ink);border:1px solid var(--line);color:var(--paper);border-radius:5px;padding:7px 9px;font-family:'Inter',sans-serif;font-size:13px;min-width:180px;flex:1;}
   input[type=text]:focus{outline:2px solid var(--gold);outline-offset:2px;}
   @media (max-width:560px){
-    .issue-card{align-items:flex-start;}
-    .issue-actions{max-width:48%;}
+    .issue-card{align-items:flex-start;flex-wrap:wrap;}
+    .issue-main{flex:1 1 100%;width:100%;max-width:100%;}
+    .issue-name{white-space:normal;overflow-wrap:anywhere;word-break:break-word;}
+    .issue-actions{width:100%;max-width:none;justify-content:flex-start;flex:1 1 100%;}
   }
   @media (prefers-reduced-motion: reduce){*{transition:none !important;}}
 </style>
@@ -447,12 +449,24 @@
       <button class="ghost" id="clear" style="display:none;">Clear pages</button>
       <div class="score-stack">
         <button class="primary" id="score" disabled>Score pages</button>
-        <button class="ghost" id="mainReset" type="button">Refresh app cache</button>
+        <button class="ghost cache-reset-main" id="mainReset" type="button">Refresh app cache</button>
       </div>
     </div>
     <div class="keynote" style="margin-top:10px;">If scoring ever returns a stale-app or malformed-response error, <b>Refresh app cache</b> clears the app shell cache without deleting your saved scores, audio, or API keys.</div>
     <div class="status" id="status"></div>
   </div>
+
+  <div id="results">
+    <div class="empty" id="empty">
+      NO CUE SHEET YET<br>
+      Add pages above, then score them.
+    </div>
+  </div>
+
+  <details class="promptview">
+    <summary>View the scoring prompt sent to Claude</summary>
+    <pre id="promptdump"></pre>
+  </details>
 
   <div class="panel" id="installPanel" style="display:none;">
     <button class="primary" id="installBtn" style="margin:0;width:100%;">Install app</button>
@@ -471,21 +485,6 @@
       <button class="ghost" id="diagreset" style="margin-top:10px;">Reset app cache</button>
     </details>
   </div>
-
-  <div id="results">
-    <div class="empty" id="empty">
-      NO CUE SHEET YET<br>
-      Add pages above, then score them.
-    </div>
-  </div>
-
-  <details class="promptview">
-    <summary>View the scoring prompt sent to Claude</summary>
-    <pre id="promptdump"></pre>
-  </details>
-  <p class="footline" id="footTools" style="display:none;">
-    <button class="linkbtn" id="footReset">Reset app cache</button>
-  </p>
 </div>
 
 <div class="playbar" id="playbar">
@@ -635,8 +634,9 @@ async function clearAppCachesOnly(){
   }catch(e){}
 }
 
-function beginNewScore(){
+async function beginNewScore(){
   savePlaybackStateSoon();
+  await clearAppCachesOnly();
   setLibraryCollapsed(true);
   currentIssueId = null; currentIssueName = ''; currentIssue = null;
   issueName.value = '';
@@ -1741,12 +1741,12 @@ wireAudioEvents(player.b);
 
 
 const PLAYBACK_SECONDS = 90;
-// Final polish: a slightly longer overlap plus earlier preparation prevents a cold handoff from sounding like dead air.
-const CROSSFADE_SECONDS = 2.0;
+// Final polish: a longer overlap plus earlier preparation gives mobile browsers more time to have the next cue ready before the handoff.
+const CROSSFADE_SECONDS = 3.0;
 const PLAYBACK_CUE_SECONDS = 90;
-const CROSSFADE_PRELOAD_SECONDS = 15;
+const CROSSFADE_PRELOAD_SECONDS = 20;
 const CROSSFADE_TICK_MS = 40;
-const CROSSFADE_WARMUP_SECONDS = 6.0;
+const CROSSFADE_WARMUP_SECONDS = 8.0;
 
 function cancelCrossfade(){
   try{
@@ -2101,7 +2101,7 @@ window.addEventListener('appinstalled', ()=>{
 
 /* Bump this whenever the file changes — it's how you tell at a glance
    whether the browser is serving the copy you actually deployed. */
-const BUILD = '2026-08-12-J3-CROSSFADE-FINAL';
+const BUILD = '2026-08-12-J4-CROSSFADE-README-POLISH';
 
 async function runDiag(){
   const out = [];
@@ -2216,7 +2216,6 @@ async function hardReset(btn){
 }
 document.getElementById('mainReset').onclick = function(){ hardReset(this); };
 document.getElementById('diagreset').onclick = function(){ hardReset(this); };
-document.getElementById('footReset').onclick = function(){ hardReset(this); };
 
 /* Once the app is installed and launched from the home screen, the install
    scaffolding has done its job — hide it. Opening the same URL in a browser
@@ -2232,10 +2231,8 @@ function applyInstalledChrome(){
   const installed = isStandalone();
   const diag = document.getElementById('diagPanel');
   const inst = document.getElementById('installPanel');
-  const foot = document.getElementById('footTools');
   if(diag) diag.style.display = installed ? 'none' : '';
   if(installed && inst) inst.style.display = 'none';
-  if(foot) foot.style.display = installed ? 'block' : 'none';
 }
 applyInstalledChrome();
 // Chrome can switch display-mode without a reload.

@@ -2,9 +2,9 @@
    Caches the app shell so it launches with no connection. API calls to
    Anthropic and Stability always go to the network — they're never cached.
 
-   v9: J2 playback/cache polish — deterministic cue starts, bounded warmup, and cache refresh.
+   v10: J4 polish — longer crossfade preparation, README/UI polish, and cache-safe layout updates.
    The page itself remains network-first so new versions are picked up promptly. */
-const CACHE = 'comic-scorer-v17-j2-playback-cache';
+const CACHE = 'comic-scorer-v18-j4-crossfade-polish';
 
 const SHELL = [
   './',
