@@ -4,12 +4,9 @@
 
 <br>
 
-**Read a Comic. Get a Soundtrack Written for It.**
+** A Soundtrack Written for the comic you're reading.**
 
-Score-A-Comic looks at the pages of an issue, works out where the scenes turn,
-and writes a music cue for each one — then generates the audio and plays it back.
 
-**Version 2.0 is a major playback and library upgrade over 1.0.** In addition to scoring an issue, 2.0 keeps multiple scored issues in a local on-device library, saves generated cues with each issue, lets you rename saved scores, and plays the cues as a continuous adaptive soundtrack with a master player and crossfades. It also adds installable PWA/background playback support, 95-second music generation for a 90-second playback window, Media Session controls, hidden per-cue audio controls, and a safe app-cache recovery tool for stale installed builds.
 
 <br>
 
@@ -43,6 +40,8 @@ the story instead of defaulting to the same cinematic sound.
 The built-in player loops each cue by default and can automatically advance through
 the score as you read.
 
+Keeps multiple scored issues in a local on-device library, saves generated cues with each issue, lets you rename saved scores, and plays the cues as a continuous adaptive soundtrack with a master player and crossfades. It also adds installable PWA/background playback support, media session controls, hidden per-cue audio controls and a safe app-cache recovery tool for stale output.
+
 ---
 
 ## What You'll Need
@@ -74,7 +73,7 @@ into [Stable Audio](https://stableaudio.com) by hand.
 3. **Set the First Page Number** — This keeps the cue sheet's page ranges aligned with the book.
 4. **Score the Pages** — Claude analyzes the issue and creates the cue sheet.
 5. **Generate Music** — Generate the cues you want using Stability AI.
-6. **Read and Listen** — Hit play and tap `›` to advance, or use **ADVANCE** to move automatically through the cues.
+6. **Read and Listen** — Hit play and tap `›` to move to the next cue, use **ADVANCE** to move automatically through the cues or **LOOP** each individually.
 
 > **Recommended for the best playthrough:** Generate **all cues in the score before starting automatic playback**. The player crossfades between cues and can prepare the next generated file in advance. If a cue is still being generated when playback reaches it, the transition cannot be as seamless.
 
@@ -86,11 +85,10 @@ cue first and then start playback.
 
 ---
 
-## What 2.0 Adds Over 1.0
+## Features: 
 
-Compared with the original 1.0 workflow, 2.0 adds:
 
-- **Local issue library** — keep multiple scored issues on one device.
+- **Local library** — keep multiple scored issues on one device.
 - **Rename saved scores** — give a score a useful name after it has been created.
 - **Saved generated audio** — generated cues stay with their issue for later listening.
 - **Continuous playback** — a single master player can move through the cue sequence automatically.
@@ -123,8 +121,8 @@ Use **New score** to start another issue. Tap any saved issue in the library to 
 
 ### Android background playback
 
-If you want your score to keep playing while you read in another app, Android may
-restrict Chrome's background activity.
+**If you want your score to keep playing while you read in another app, Android may
+restrict Chrome's background activity.**
 
 On Android/Pixel:
 
