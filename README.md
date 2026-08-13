@@ -4,7 +4,7 @@
 
 <br>
 
-** A Soundtrack Written for the comic you're reading.**
+**A Soundtrack Written for the comic you're reading**
 
 
 
